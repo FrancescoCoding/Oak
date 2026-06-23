@@ -27,6 +27,10 @@ export const config = {
   // PERSONALITIES_ENABLED=false to keep everyone on the plain coach.
   personalitiesEnabled: (process.env.PERSONALITIES_ENABLED ?? "true") !== "false",
 
+  // The owner's persona: any persona id (e.g. "arnold", "yoda", "sherlock"),
+  // "normal" for the plain coach, or "random" for a stable random character.
+  ownerPersona: process.env.OWNER_PERSONA ?? "arnold",
+
   // Models. Sonnet for real coaching, the fast model for trivial logging.
   model: process.env.CLAUDE_MODEL ?? "claude-sonnet-4-6",
   modelFast: process.env.CLAUDE_MODEL_FAST ?? "claude-haiku-4-5",

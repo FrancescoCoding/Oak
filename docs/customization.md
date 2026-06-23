@@ -36,12 +36,16 @@ coaching knowledge and the safety rules are preserved, and a persona will drop
 character if the user asks.
 
 - **Toggle:** `PERSONALITIES_ENABLED=false` puts everyone on the plain coach.
-- **Owner:** the chat in `OWNER_CHAT_ID` always gets Arnold.
-- **Everyone else:** a stable random character (Yoda, Sherlock, Tony Stark,
-  Gandalf, Dwight Schrute, Jack Sparrow, Batman), chosen deterministically from
-  the chat id so it does not change mid-conversation.
+- **Owner's persona:** set `OWNER_PERSONA` to any persona id (`arnold` (default),
+  `yoda`, `sherlock`, `stark`, `gandalf`, `dwight`, `sparrow`, `batman`), to
+  `normal` for the plain coach, or to `random` for a stable random character. This
+  is the knob most self-hosters want, since you are usually the only user.
+- **Everyone else:** a stable random character, chosen deterministically from the
+  chat id so it does not change mid-conversation. Only relevant if you let other
+  people talk to your bot.
 - **Add or change characters:** edit `CHARACTER_POOL` (or `ARNOLD`) in
-  `src/agent/personalities.ts`; each entry is a `name` and a `voice` instruction.
+  `src/agent/personalities.ts`; each entry is a `name` and a `voice` instruction,
+  and its `id` becomes a valid `OWNER_PERSONA` value.
 
 The startup ping uses the owner's persona name (for example "Arnold is online and
 ready").
