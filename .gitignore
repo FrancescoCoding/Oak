@@ -11,3 +11,6 @@ PERSONAL.md
 data/
 *-sessions.json
 *-schedule.json
+
+# Local caches written by skills/scripts at runtime
+**/.cache/

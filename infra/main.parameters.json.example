@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "containerImage": { "value": "myregistry.azurecr.io/fitcoach-agent:latest" },
+    "allowedTelegramIds": { "value": "YOUR_TELEGRAM_ID" },
+    "ownerChatId": { "value": "YOUR_TELEGRAM_ID" },
+    "timezone": { "value": "Europe/London" },
+    "agentName": { "value": "Coach" },
+    "claudeOauthToken": { "value": "PASTE_OR_USE_KEYVAULT_REFERENCE" },
+    "telegramBotToken": { "value": "PASTE_OR_USE_KEYVAULT_REFERENCE" },
+    "notionToken": { "value": "PASTE_OR_USE_KEYVAULT_REFERENCE" },
+    "cronSecret": { "value": "GENERATE_A_LONG_RANDOM_VALUE" }
+  }
+}
