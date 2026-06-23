@@ -1,4 +1,4 @@
-# FitCoach Agent
+# Oak - A Personal Fitness Goals Agent
 
 A personal fitness coach, motivator, and food advisor you talk to on **Telegram**. It runs on
 the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview), keeps your training
