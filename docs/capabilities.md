@@ -18,6 +18,7 @@ name.
 | `progress-report` | Consistency, volume trends, and personal records, optionally saved as a formatted Notion page. |
 | `find-exercises` | Looks up real exercises (see below). |
 | `notion-formatting` | How to write clean, structured Notion pages and keep the Dashboard in sync. |
+| `import-knowledge` | Imports dumped training programs into the Notion Knowledge Base (see below). |
 
 Cross-cutting coaching rules (disambiguate Notion pages by parent context, read
 the day from the Telegram header, never use em dashes, etc.) are baked into these
@@ -61,6 +62,16 @@ rows, querying recent sessions, writing rich blocks (headings, callouts, divider
 tables, columns), and refreshing Dashboard tiles. The full workspace schema, build
 order, API patterns, and Dashboard layout are in
 [notion-architecture.md](./notion-architecture.md).
+
+## Knowledge base
+
+Notion doubles as the agent's knowledge base. Drop training programs and reference
+material (PDF, Markdown, text, images, CSV) into the repo's `knowledge/` folder and
+ask the coach to import them. The `import-knowledge` skill reads each file,
+structures it (using vision for PDFs and images), and files it as an organised
+subpage under a **Knowledge Base** page in Notion via
+`scripts/notion.mjs create-page`. The raw dump stays local and gitignored; the
+durable, organised copy lives in Notion, and the coach draws on it when planning.
 
 ## Personas
 

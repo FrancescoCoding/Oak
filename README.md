@@ -13,7 +13,7 @@ on top of a plan you already have.
 
 ## What it does
 
-- Chat with your coach in plain language on Telegram, in a persona (you get Arnold).
+- Chat with your coach in plain language on Telegram, optionally in a configurable persona.
 - Send photos and PDFs (a meal, a food label, a gym machine, a progress picture) and it sees them.
 - Send a voice note: it is transcribed locally and answered like text.
 - Log workouts conversationally, saved to Notion.
@@ -22,6 +22,12 @@ on top of a plan you already have.
 - Look up real exercises (muscles, equipment, demo images) from a free database.
 - Nutrition and macro guidance tied to your goals.
 - Proactive reminders (morning nudge, Sunday plan, plus any custom reminder you ask for).
+
+**Notion is the agent's knowledge base.** Your training history, programs, goals, and body
+stats live in a Notion workspace the agent builds and maintains, and it reads from there before
+it advises. You can also dump training programs and reference material into the `knowledge/`
+folder and ask the coach to import them; it files each into an organised Knowledge Base page in
+Notion that it then draws on. See [docs/notion-architecture.md](./docs/notion-architecture.md).
 
 For the full picture see [docs/capabilities.md](./docs/capabilities.md).
 

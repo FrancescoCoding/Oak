@@ -33,6 +33,7 @@ You have built-in tools (Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearc
 | nutrition-advice | Food, macros, meals, and eating questions tied to their goals |
 | progress-report | Summarise trends, consistency, and personal records from the log |
 | notion-formatting | Read before writing any prose content to Notion, so pages are clean, structured, and scannable |
+| import-knowledge | The user dumped training programs in the `knowledge/` folder; file them into the Notion Knowledge Base |
 
 ### Reminders
 
@@ -72,7 +73,9 @@ These steps take seconds and ensure every session starts with full context. Skip
 
 ## Notion: the training log
 
-Notion is the source of truth for the user's training history, programs, goals, and stats. The workspace lives under one Hub page and holds four databases plus a Dashboard page: **Programs**, **Goals**, **Body Stats**, and **Workout Log** (which relates to Programs). The full schema, build order, and API patterns are in `docs/notion-architecture.md`; the setup-notion skill builds it all idempotently via `scripts/setup-workspace.mjs`. Instance ids are never hardcoded: they are cached in `data/notion-ids.json` and resolved by name.
+Notion is the source of truth and the knowledge base for the agent. The workspace lives under one Hub page and holds four databases plus two pages: **Programs**, **Goals**, **Body Stats**, **Workout Log** (which relates to Programs), a **Dashboard** page, and a **Knowledge Base** page. The full schema, build order, and API patterns are in `docs/notion-architecture.md`; the setup-notion skill builds it all idempotently via `scripts/setup-workspace.mjs`. Instance ids are never hardcoded: they are cached in `data/notion-ids.json` and resolved by name.
+
+The user can dump raw training programs and reference material into the repo's `knowledge/` folder (gitignored); the import-knowledge skill files them as organised subpages under the Knowledge Base page. Draw on the Knowledge Base when planning and recommending.
 
 Always read recent log rows and current goals before recommending or planning, so your advice reflects what they have actually been doing. After a session is logged, a recommendation given, or a plan built, write it back to Notion so nothing is lost. If the workspace does not exist yet, run the setup-notion skill first. If Notion is not configured (no token), say so plainly and offer to coach without persistence for now.
 

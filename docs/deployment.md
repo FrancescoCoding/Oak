@@ -54,16 +54,17 @@ instance owns the mounted storage.
 The same pattern (webhook URL + external cron + durable volume) maps to any
 scale-to-zero host. Two examples ship with the repo:
 
-- **Google Cloud Run**: [`scripts/deploy-cloudrun.sh`](../scripts/deploy-cloudrun.sh)
-  builds, deploys with `--min-instances 0 --no-cpu-throttling`, mounts a GCS
-  bucket at `/data`, and creates the Cloud Scheduler jobs.
-- **Azure Container Apps**: [`infra/main.bicep`](../infra/main.bicep) provisions
-  the environment, an Azure Files share for `/data`, the app scaled to zero
-  replicas with external ingress, and scheduled Container Apps Jobs that call
-  `/cron/run`. Push your image, copy `infra/main.parameters.json.example` to
-  `infra/main.parameters.json`, fill it in, then:
-  ```bash
-  az deployment group create -g YOUR_RG -f infra/main.bicep -p infra/main.parameters.json
-  ```
-  Container Apps Jobs interpret their cron in UTC, so adjust the reminder hours in
-  the Bicep for your timezone.
+- **Google Cloud Run (Terraform, recommended)**: [`infra/gcp/`](../infra/gcp/)
+  provisions Artifact Registry, the Cloud Run service (min 0 / max 1, CPU always
+  allocated), a runtime service account, Secret Manager secrets, a GCS bucket at
+  `/data`, and the Cloud Scheduler jobs. See [infra/gcp/README.md](../infra/gcp/README.md)
+  for the two-step apply (create the registry, push the image, apply the rest).
+- **Google Cloud Run (script)**: [`scripts/deploy-cloudrun.sh`](../scripts/deploy-cloudrun.sh)
+  is the imperative equivalent: builds, deploys with `--min-instances 0
+  --no-cpu-throttling`, mounts a GCS bucket at `/data`, and creates the scheduler jobs.
+- **Azure Container Apps**: [`infra/azure/`](../infra/azure/) provisions the
+  environment, an Azure Files share for `/data`, the app scaled to zero replicas
+  with external ingress, and scheduled Container Apps Jobs that call `/cron/run`.
+  See [infra/azure/README.md](../infra/azure/README.md) for the deploy steps.
+
+See [infra/README.md](../infra/README.md) for an index of the available setups.

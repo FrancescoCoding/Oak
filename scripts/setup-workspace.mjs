@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * setup-workspace.mjs — deterministic builder for the coaching Notion workspace.
+ * setup-workspace.mjs: deterministic builder for the coaching Notion workspace.
  *
  * Builds, in the strict order the relations require:
  *   1. Programs DB
@@ -192,7 +192,7 @@ async function main() {
     Notes: { rich_text: {} },
   }, existing);
 
-  // 4. Workout Log (relation to Programs — Programs must already exist)
+  // 4. Workout Log (relation to Programs, which must already exist)
   cache["Workout Log"] = await ensureDatabase("Workout Log", {
     Session: { title: {} },
     Date: { date: {} },
@@ -226,6 +226,9 @@ async function main() {
   // 6. Dashboard page.
   await ensureDashboard();
 
+  // 7. Knowledge Base page: where dumped training programs are organised.
+  await ensureKnowledgeBase();
+
   writeCache(cache);
   console.log("\nWorkspace ready. Ids cached to data/notion-ids.json");
 }
@@ -255,7 +258,7 @@ async function ensureDashboard() {
 
 async function buildDashboardBody(pageId) {
   await append(pageId, [
-    box("Current Program — Week 1 — started recently", "🏋️", "blue_background"),
+    box("Current Program, Week 1, started recently", "🏋️", "blue_background"),
     div(),
   ]);
   // Row 1: This Week | Goals | Body Stats
@@ -282,6 +285,26 @@ async function buildDashboardBody(pageId) {
       [box("Quick Commands", "⚡", "default"), bul("what should I train today"), bul("log my session"), bul("how am I progressing")],
     ),
   ]);
+}
+
+async function ensureKnowledgeBase() {
+  let pageId = await findHubChildPage("Knowledge Base");
+  if (!pageId) {
+    const page = await api("pages", "POST", {
+      parent: { type: "page_id", page_id: HUB },
+      icon: { type: "emoji", emoji: "📚" },
+      properties: { title: { title: RT("Knowledge Base") } },
+    });
+    pageId = page.id;
+    await append(pageId, [
+      box("Training programs and reference material the coach draws on. Drop files in the repo's knowledge/ folder and ask the coach to import them.", "📚", "gray_background"),
+      div(),
+    ]);
+    console.log(`+ created Knowledge Base page (${pageId})`);
+  } else {
+    console.log(`= Knowledge Base page exists (${pageId})`);
+  }
+  cache.__knowledgeBase = pageId;
 }
 
 /** Fetch the first column_list on the Dashboard and return its column ids. */

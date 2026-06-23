@@ -1,9 +1,9 @@
 # Notion workspace architecture
 
 The coaching workspace lives under one root Notion page (the **Hub**, set via
-`NOTION_PARENT_PAGE_ID`). Five databases and two pages hang directly off it. The
-whole thing is built deterministically by `scripts/setup-workspace.mjs` and
-maintained through `scripts/notion.mjs`.
+`NOTION_PARENT_PAGE_ID`). Four databases and two pages (a Dashboard and a
+Knowledge Base) hang directly off it. The whole thing is built deterministically
+by `scripts/setup-workspace.mjs` and maintained through `scripts/notion.mjs`.
 
 Instance-specific ids (Hub, each database, the Dashboard page, and its column
 ids) are **not hardcoded** anywhere in the repo. They are discovered at build
@@ -20,6 +20,7 @@ Relations force the order: a database referenced by a relation must exist first.
 4. **Workout Log** (has a `Program` relation to Programs)
 5. an initial Programs row (only if Programs is empty)
 6. **Dashboard** page
+7. **Knowledge Base** page (where dumped training programs are filed as subpages)
 
 Run it with: `node scripts/setup-workspace.mjs` (idempotent: existing
 databases/pages are detected by title and reused, never duplicated). Add
@@ -41,6 +42,8 @@ databases/pages are detected by title and reused, never duplicated). Add
   Batch at <=90 blocks per request.
 - **Rows:** `POST /v1/pages` with `parent:{ database_id }`. Use
   `node scripts/notion.mjs log --db "Workout Log" --set "Name=value" ...`.
+- **Child pages:** `POST /v1/pages` with `parent:{ page_id }`. Use
+  `node scripts/notion.mjs create-page --parent <pageId> --title "..." --file x.md`.
 
 ## Database schemas
 
@@ -85,6 +88,13 @@ node scripts/notion.mjs refresh-tile --tile goals --md "> [🎯] **Goals**\n- Sq
 node scripts/notion.mjs refresh-tile --tile thisWeek --file week.md
 node scripts/notion.mjs refresh-tile --tile bodyStats --md "..."
 ```
+
+## Knowledge Base
+
+A page (not a database) whose id is cached under `__knowledgeBase`. Training
+programs the user dumps into the repo's `knowledge/` folder are filed here as
+organised subpages (one per program) by the import-knowledge skill, using
+`create-page`. The coach draws on these when planning and recommending.
 
 Refresh **Goals** after a goal changes, **bodyStats** after a check-in,
 **thisWeek** after a session is logged. Rebuild the whole Dashboard

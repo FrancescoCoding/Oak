@@ -15,7 +15,7 @@ Run the bundled CLI with Bash. Filters are ANDed; muscle matches primary or seco
 # Compact text (default): name, equipment, level, primary muscles, first cue, demo image
 node scripts/exercise-db.mjs --muscle chest --equipment dumbbell --limit 6
 
-# Full records as JSON (all instructions + image URL) — use when you need the cues or an image
+# Full records as JSON (all instructions + image URL), use when you need the cues or an image
 node scripts/exercise-db.mjs --name "romanian deadlift" --limit 1 --json
 ```
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * notion.mjs — a thin Notion REST helper for the coach.
+ * notion.mjs: a thin Notion REST helper for the coach.
  *
  * The Notion MCP server only writes paragraph and bulleted-list blocks and only
  * to page parents, which makes rich pages and database logging impossible
@@ -395,12 +395,38 @@ async function cmdRefreshTile(args) {
   console.log(`Refreshed tile ${args.tile ?? columnId} with ${blocks.length} block(s)`);
 }
 
+/**
+ * Create a child page under a parent page (used to organise the knowledge base:
+ * one subpage per imported training program). Optional markdown body and emoji.
+ * Prints the new page id.
+ */
+async function cmdCreatePage(args) {
+  if (!args.parent) throw new Error("--parent <pageId> is required");
+  if (!args.title) throw new Error("--title is required");
+  const body = {
+    parent: { page_id: args.parent },
+    properties: { title: { title: [{ text: { content: args.title } }] } },
+  };
+  if (args.icon) body.icon = { type: "emoji", emoji: args.icon };
+  const page = await notion("/pages", "POST", body);
+
+  const md = args.file ? fs.readFileSync(args.file, "utf8") : (args.md ?? "");
+  if (md.trim()) {
+    const blocks = markdownToBlocks(md);
+    for (let i = 0; i < blocks.length; i += 100) {
+      await notion(`/blocks/${page.id}/children`, "PATCH", { children: blocks.slice(i, i + 100) });
+    }
+  }
+  console.log(page.id);
+}
+
 const COMMANDS = {
   "resolve-db": cmdResolveDb,
   "query-recent": cmdQueryRecent,
   log: cmdLog,
   append: cmdAppend,
   "refresh-tile": cmdRefreshTile,
+  "create-page": cmdCreatePage,
 };
 
 async function main() {

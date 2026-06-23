@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * exercise-db.mjs — query a free, keyless exercise database for the coach.
+ * exercise-db.mjs: query a free, keyless exercise database for the coach.
  *
  * Data source: free-exercise-db (https://github.com/yuhonas/free-exercise-db),
  * a static JSON dataset of ~870 exercises with muscles, equipment, level,
@@ -125,7 +125,7 @@ async function main() {
   for (const ex of filtered) {
     const s = summarize(ex);
     const muscles = [...(s.primaryMuscles ?? [])].join(", ");
-    console.log(`- ${s.name} (${s.equipment}, ${s.level}) — ${muscles}`);
+    console.log(`- ${s.name} (${s.equipment}, ${s.level}): ${muscles}`);
     if (s.instructions?.[0]) console.log(`    ${s.instructions[0]}`);
     if (s.images.start) console.log(`    start: ${s.images.start}`);
     if (s.images.end) console.log(`    end:   ${s.images.end}`);

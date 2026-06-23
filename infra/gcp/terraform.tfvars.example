@@ -1,0 +1,21 @@
+# Copy to terraform.tfvars and fill in. Do not commit terraform.tfvars (it holds secrets).
+
+project_id = "your-gcp-project"
+region     = "europe-west1"
+
+allowed_telegram_ids = "YOUR_TELEGRAM_ID"
+owner_chat_id        = "YOUR_TELEGRAM_ID"
+timezone             = "Europe/London"
+agent_name           = "Coach"
+
+# Optional Notion. Leave notion_token empty to run without persistence.
+notion_token          = ""
+notion_parent_page_id = ""
+
+# Secrets (stored in Secret Manager by Terraform).
+claude_oauth_token = "PASTE_FROM_claude_setup-token"
+telegram_bot_token = "PASTE_FROM_BotFather"
+cron_secret        = "GENERATE_A_LONG_RANDOM_VALUE"
+
+# personalities_enabled defaults to false; set true to enable persona overlays.
+# personalities_enabled = true

@@ -7,6 +7,11 @@ dist/
 # Personal customisation (your own goals, stats, dietary prefs). Keep this private.
 PERSONAL.md
 
+# User-dumped training programs / knowledge. Ingested into Notion, never committed.
+knowledge/*
+!knowledge/README.md
+!knowledge/.gitkeep
+
 # Runtime data: persisted sessions and scheduled tasks
 data/
 *-sessions.json
@@ -14,3 +19,14 @@ data/
 
 # Local caches written by skills/scripts at runtime
 **/.cache/
+
+# Terraform state and secret var files
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Azure deployment parameters (hold secrets)
+infra/azure/main.parameters.json
