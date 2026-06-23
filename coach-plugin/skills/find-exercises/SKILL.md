@@ -5,7 +5,7 @@ description: Look up real exercises by muscle, equipment, or level from a free e
 
 # Find exercises
 
-Pull real, vetted exercises from a free, keyless database (free-exercise-db, ~870 movements with muscles, equipment, level, instructions, and demo images) instead of inventing them. Use it to ground recommendations and weekly plans in actual movements that fit the user's equipment and avoid their injuries.
+Pull real, vetted exercises from a free, keyless database (free-exercise-db, ~870 movements with muscles, equipment, level, instructions, and demo images; public domain, The Unlicense) instead of inventing them. Use it to ground recommendations and weekly plans in actual movements that fit the user's equipment and avoid their injuries.
 
 ## How to query
 

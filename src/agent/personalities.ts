@@ -107,6 +107,11 @@ export const CHARACTER_POOL: Personality[] = [
   },
 ];
 
+/** Every selectable persona by id (normal + arnold + the character pool). */
+export const PERSONAS: Record<string, Personality> = Object.fromEntries(
+  [NORMAL, ARNOLD, ...CHARACTER_POOL].map((p) => [p.id, p]),
+);
+
 /** Simple stable hash of a string to a non-negative integer. */
 function hashString(s: string): number {
   let h = 0;
@@ -116,12 +121,30 @@ function hashString(s: string): number {
   return Math.abs(h);
 }
 
-/** Pick the persona for a chat. Owner -> Arnold; others -> stable random. */
-export function pickPersonality(chatId: string): Personality {
-  if (!config.personalitiesEnabled) return NORMAL;
-  if (config.ownerChatId && chatId === config.ownerChatId) return ARNOLD;
+/** A stable random pick from the character pool, keyed by chat id. */
+function randomCharacter(chatId: string): Personality {
   if (CHARACTER_POOL.length === 0) return NORMAL;
   return CHARACTER_POOL[hashString(chatId) % CHARACTER_POOL.length];
+}
+
+/**
+ * Pick the persona for a chat.
+ *
+ * The owner's persona is set by OWNER_PERSONA (config.ownerPersona): any persona
+ * id (e.g. "yoda"), "normal" for the plain coach, or "random" for a stable random
+ * character. Defaults to Arnold. Any other chat gets a stable random character.
+ */
+export function pickPersonality(chatId: string): Personality {
+  if (!config.personalitiesEnabled) return NORMAL;
+
+  const isOwner = config.ownerChatId && chatId === config.ownerChatId;
+  if (isOwner) {
+    const choice = (config.ownerPersona || "arnold").toLowerCase();
+    if (choice === "random") return randomCharacter(chatId);
+    return PERSONAS[choice] ?? ARNOLD;
+  }
+
+  return randomCharacter(chatId);
 }
 
 /** The text to append to the system prompt, or "" for the normal coach. */

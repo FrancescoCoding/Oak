@@ -44,7 +44,7 @@ with `WHISPER_MODEL`. No audio is sent to any third party.
 The `find-exercises` skill pulls real movements from the free, keyless
 [free-exercise-db](https://github.com/yuhonas/free-exercise-db) dataset (~870
 exercises with muscles, equipment, level, instructions, and start/end demo
-images). `scripts/exercise-db.mjs` downloads and caches the dataset, then filters:
+images), released under The Unlicense (public domain). `scripts/exercise-db.mjs` downloads and caches the dataset, then filters:
 
 ```bash
 node scripts/exercise-db.mjs --muscle chest --equipment dumbbell --limit 6

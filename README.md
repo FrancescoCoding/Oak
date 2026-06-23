@@ -111,6 +111,15 @@ This is MIT licensed. Fork it, change the persona, swap the Notion schema, add s
 `src/` organised by domain and pair new features with focused skills. PRs that keep it generic
 and useful to others are welcome. Note: no em dashes in the codebase, please.
 
+## Data and acknowledgements
+
+- **Exercise data and demo images:** [free-exercise-db](https://github.com/yuhonas/free-exercise-db)
+  by yuhonas, released under [The Unlicense](https://unlicense.org/) (public domain).
+- **Voice transcription:** [OpenAI Whisper](https://github.com/openai/whisper) (MIT),
+  run locally via [Transformers.js](https://github.com/huggingface/transformers.js) (Apache-2.0).
+- **Coaching, programs, goals, and stats** live in your own Notion workspace via the
+  Notion API; that data is yours.
+
 ## License
 
 MIT. See [LICENSE](./LICENSE).
