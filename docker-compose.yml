@@ -1,0 +1,23 @@
+# Easiest way to run the agent: `docker compose up -d`.
+#
+# This runs in polling mode (the default), so it needs no public URL and the
+# in-process scheduler handles reminders. Just fill in .env first. The named
+# volume keeps sessions and the schedule across restarts.
+services:
+  fitcoach:
+    build: .
+    env_file: .env
+    environment:
+      # Polling mode: always-on, no public URL needed. This is the simple path.
+      MODE: polling
+      SESSION_FILE: /data/sessions.json
+      SCHEDULE_FILE: /data/schedule.json
+    volumes:
+      - fitcoach-data:/data
+    # Optional: expose the health check. Not required for the bot to work.
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  fitcoach-data:

@@ -1,0 +1,27 @@
+{
+  "name": "fitcoach-agent",
+  "version": "1.0.0",
+  "description": "A personal fitness coach, motivator, and food advisor you talk to on Telegram, powered by the Claude Agent SDK and backed by Notion.",
+  "type": "module",
+  "main": "dist/index.js",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "dev": "tsx --env-file=.env src/index.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.177",
+    "@huggingface/transformers": "^4.2.0",
+    "@notionhq/notion-mcp-server": "^1.8.1",
+    "croner": "^10.0.1",
+    "ffmpeg-static": "^5.3.0",
+    "grammy": "^1.30.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

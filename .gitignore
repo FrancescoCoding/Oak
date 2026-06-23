@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+*.log
+.claude/
+
+# Personal customisation (your own goals, stats, dietary prefs). Keep this private.
+PERSONAL.md
+
+# Runtime data: persisted sessions and scheduled tasks
+data/
+*-sessions.json
+*-schedule.json
