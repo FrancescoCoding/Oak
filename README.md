@@ -1,5 +1,4 @@
 # Oak - A Personal Fitness Goals Agent
-
 A personal fitness coach, motivator, and food advisor you talk to on **Telegram**. It runs on
 the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview), keeps your training
 log in **Notion**, recommends what to train, builds your weekly plan, transcribes your voice
@@ -10,6 +9,8 @@ on top of a plan you already have.
 
 > Coaching only. This is not a doctor or a registered dietitian. It will tell you to see a
 > professional for injuries, pain, or medical concerns, and it keeps nutrition advice sensible.
+
+<img width="100%" alt="OAK" src="https://github.com/user-attachments/assets/a2d70688-71fa-41ff-a2e2-ba0f947aaba6" />
 
 ## What it does
 
