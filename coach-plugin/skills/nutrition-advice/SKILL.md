@@ -10,7 +10,7 @@ Give practical, sustainable food guidance that supports the user's training goal
 ## 1. Gather context
 
 - Read `PERSONAL.md`: goals, body stats, dietary preferences and restrictions, foods they dislike, daily routine, and any nutrition target.
-- Consider their recent training (from the Notion Workout Log, loaded via `ToolSearch`, prefix `mcp__notion__`) if energy or recovery is relevant to the question.
+- Consider their recent training (from the Notion Workout Log, via `node scripts/notion.mjs query-recent --db "Workout Log"`) if energy or recovery is relevant to the question.
 
 ## 2. Advise sensibly
 

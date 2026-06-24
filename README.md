@@ -40,7 +40,7 @@ For the full picture see [docs/capabilities.md](./docs/capabilities.md).
 ```
 Telegram  <->  grammy bot (src/index.ts)  <->  Claude Agent SDK (src/agent/runner.ts)
                      |                                    |
-                scheduler (croner)               Notion (MCP + scripts/notion.mjs)
+                scheduler (croner)               Notion (REST API via scripts/notion.mjs)
                 reminders + weekly plan          your training log
 ```
 

@@ -7,7 +7,7 @@ import { runAgent, classifyQuery } from "./agent/runner.js";
 import { registerBot, sendMessage, splitMessage } from "./channel/notify.js";
 import { initScheduler } from "./scheduler/scheduler.js";
 import { startSchedulerServer } from "./scheduler/server.js";
-import { notionConfigured } from "./notion/mcp.js";
+import { notionConfigured } from "./notion/status.js";
 import { pickPersonality } from "./agent/personalities.js";
 import { transcribeAudio, warmupTranscriber, transcriptionAvailable } from "./media/transcribe.js";
 import { type Attachment, isSupportedAttachment } from "./media/attachments.js";
@@ -133,7 +133,7 @@ function classifyError(msg: string): string {
     return "That took too long and timed out. Worth trying again.";
   if (lower.includes("max_turns") || lower.includes("max turns"))
     return "That request got too involved for one go. Try breaking it into smaller asks.";
-  if (lower.includes("mcp") || lower.includes("notion"))
+  if (lower.includes("notion"))
     return "I am having trouble reaching Notion right now. Check the integration token and that the page is shared with it, then try again.";
   return "Something went wrong handling that. I have logged the details. Try again in a moment.";
 }

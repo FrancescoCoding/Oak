@@ -1,17 +1,23 @@
 #!/usr/bin/env node
 /**
- * notion.mjs: a thin Notion REST helper for the coach.
+ * notion.mjs: the coach's Notion REST helper.
  *
- * The Notion MCP server only writes paragraph and bulleted-list blocks and only
- * to page parents, which makes rich pages and database logging impossible
- * through it. This wraps the REST API so skills get, via Bash:
+ * Notion is reached entirely through the REST API (there is no MCP server): the
+ * API does everything (rich blocks, tables, columns, database rows, page icons),
+ * so this single code path keeps pages well structured. This wraps it so skills
+ * get, via Bash:
  *
- *   - rich block writing (headings, callouts, dividers, tables, lists)
+ *   - rich block writing (headings, callouts, dividers, tables, lists), with
+ *     inline **bold**, _italic_, `code`, and [links](url) rendered as rich text
  *   - logging a row into a database (the most common task)
  *   - querying recent rows (e.g. last 3 sessions for a Focus)
- *   - resolving + caching database ids so they survive between sessions
+ *   - resolving + caching database ids so they survive between sessions, with a
+ *     self-healing cache (a stale id from a deleted/recreated db is re-resolved)
  *
- * Auth: NOTION_TOKEN (the same internal integration token the MCP server uses).
+ * Requests automatically retry with backoff on Notion's rate limit (HTTP 429,
+ * approx 3 req/s per integration) and on transient 5xx responses.
+ *
+ * Auth: NOTION_TOKEN (the internal integration token).
  *
  * Note: Notion's public API cannot create or configure database *views*
  * (grouping, default filters). That is a platform limitation, not fixable here;
@@ -28,16 +34,16 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const TOKEN = process.env.NOTION_TOKEN;
 const NOTION_VERSION = process.env.NOTION_VERSION ?? "2022-06-28";
 const API = "https://api.notion.com/v1";
 const CACHE_FILE = path.resolve(process.cwd(), "data", "notion-ids.json");
 
-if (!TOKEN) {
-  console.error("NOTION_TOKEN is not set. Notion is not configured.");
-  process.exit(1);
-}
+// Retry tuning for rate limits (429) and transient 5xx responses.
+const MAX_RETRIES = 5;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ─── arg parsing (supports repeated --set) ──────────────────────────────────
 function parseArgs(argv) {
@@ -55,20 +61,38 @@ function parseArgs(argv) {
 }
 
 async function notion(pathname, method = "GET", body) {
-  const res = await fetch(`${API}${pathname}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${TOKEN}`,
-      "Notion-Version": NOTION_VERSION,
-      "Content-Type": "application/json",
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(`Notion ${method} ${pathname} -> ${res.status}: ${json.message ?? ""}`);
+  if (!TOKEN) throw new Error("NOTION_TOKEN is not set. Notion is not configured.");
+
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${API}${pathname}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Notion-Version": NOTION_VERSION,
+        "Content-Type": "application/json",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    // Rate limited (429) or a transient server error: back off and retry.
+    // Notion sets Retry-After (seconds) on a 429; otherwise use exponential
+    // backoff capped at 8s. Give up after MAX_RETRIES and fall through to the
+    // normal error handling below.
+    if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : Math.min(2 ** attempt, 8) * 1000;
+      await sleep(waitMs);
+      continue;
+    }
+
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(`Notion ${method} ${pathname} -> ${res.status}: ${json.message ?? ""}`);
+    }
+    return json;
   }
-  return json;
 }
 
 // ─── id cache ────────────────────────────────────────────────────────────────
@@ -91,7 +115,18 @@ async function resolveDbId(dbRef) {
   if (/^[0-9a-f]{32}$/i.test(dbRef.replace(/-/g, ""))) return dbRef;
 
   const cache = readCache();
-  if (cache[dbRef]) return cache[dbRef];
+  if (cache[dbRef]) {
+    // Validate the cached id still resolves. If the database was deleted and
+    // recreated in Notion, the cached id is stale (404s); drop it and re-resolve
+    // by name below, so the cache self-heals rather than needing a manual clear.
+    try {
+      await notion(`/databases/${cache[dbRef]}`);
+      return cache[dbRef];
+    } catch {
+      delete cache[dbRef];
+      writeCache(cache);
+    }
+  }
 
   const found = await notion("/search", "POST", {
     query: dbRef,
@@ -152,8 +187,60 @@ async function buildProperties(dbId, sets) {
 }
 
 // ─── markdown -> Notion blocks ───────────────────────────────────────────────
+
+// Inline markdown spans, in priority order. Code is first so its contents are
+// taken literally; bold (** / __) is matched before italic (* / _) so "**x**"
+// is not mistaken for two italics. Spans are non-nesting, which covers the
+// common cases (bold/italic/code/link inside a line) without a full parser.
+const INLINE_PATTERNS = [
+  { re: /`([^`]+)`/, annotations: { code: true } },
+  { re: /\[([^\]]+)\]\(([^)\s]+)\)/, link: true },
+  { re: /\*\*([^*]+)\*\*/, annotations: { bold: true } },
+  { re: /__([^_]+)__/, annotations: { bold: true } },
+  { re: /\*([^*]+)\*/, annotations: { italic: true } },
+  { re: /_([^_]+)_/, annotations: { italic: true } },
+];
+
+const plain = (content) => ({ type: "text", text: { content } });
+
+/**
+ * Parse a line of markdown into Notion rich_text objects, rendering inline
+ * **bold**, _italic_, `code`, and [links](url) as annotations rather than
+ * leaking literal asterisks/backticks into the page. Returns [] for empty input.
+ */
+function parseInline(text) {
+  if (!text) return [];
+  const out = [];
+  let rest = text;
+
+  while (rest.length) {
+    // Find the earliest-matching span across all patterns.
+    let best = null;
+    for (const pat of INLINE_PATTERNS) {
+      const m = pat.re.exec(rest);
+      if (m && (best === null || m.index < best.m.index)) best = { pat, m };
+    }
+    if (!best) {
+      out.push(plain(rest));
+      break;
+    }
+    const { pat, m } = best;
+    if (m.index > 0) out.push(plain(rest.slice(0, m.index)));
+    if (pat.link) {
+      out.push({ type: "text", text: { content: m[1], link: { url: m[2] } } });
+    } else {
+      out.push({ type: "text", text: { content: m[1] }, annotations: pat.annotations });
+    }
+    rest = rest.slice(m.index + m[0].length);
+  }
+  return out;
+}
+
+// Block-level rich text. Always returns at least one node so a block is never
+// created with empty rich_text where Notion expects content.
 function rt(text) {
-  return [{ type: "text", text: { content: text } }];
+  const parsed = parseInline(text);
+  return parsed.length ? parsed : [plain(text ?? "")];
 }
 
 /** Minimal but useful converter: headings, callouts, dividers, lists, tables, paragraphs. */
@@ -430,6 +517,11 @@ const COMMANDS = {
 };
 
 async function main() {
+  if (!TOKEN) {
+    console.error("NOTION_TOKEN is not set. Notion is not configured.");
+    process.exitCode = 1;
+    return;
+  }
   const [command, ...rest] = process.argv.slice(2);
   const fn = COMMANDS[command];
   if (!fn) {
@@ -440,7 +532,13 @@ async function main() {
   await fn(parseArgs(rest));
 }
 
-main().catch((err) => {
-  console.error(err.message);
-  process.exitCode = 1;
-});
+// Run only when invoked directly (node scripts/notion.mjs ...), so the pure
+// helpers above can be imported by the test suite without executing a command.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error(err.message);
+    process.exitCode = 1;
+  });
+}
+
+export { parseInline, markdownToBlocks, buildPropertyValue };
