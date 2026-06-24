@@ -24,9 +24,12 @@ on top of a plan you already have.
 - Nutrition and macro guidance tied to your goals.
 - Proactive reminders (morning nudge, Sunday plan, plus any custom reminder you ask for).
 
-**Notion is the agent's knowledge base.** Your training history, programs, goals, and body
-stats live in a Notion workspace the agent builds and maintains, and it reads from there before
-it advises. You can also dump training programs and reference material into the `knowledge/`
+**Notion is the agent's knowledge base.** The agent creates the Notion databases for you
+(Programs, Goals, Body Stats, Workout Log) plus a Dashboard and Knowledge Base page, fills them
+with the relevant values as you train, and keeps them up to date, including a live Dashboard that
+always reflects your current program, week, goals, latest stats, and next session. Your training
+history, programs, goals, and body stats live in this workspace the agent builds and maintains,
+and it reads from there before it advises. You can also dump training programs and reference material into the `knowledge/`
 folder and ask the coach to import them; it files each into an organised Knowledge Base page in
 Notion that it then draws on. See [docs/notion-architecture.md](./docs/notion-architecture.md).
 
