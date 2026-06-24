@@ -1,5 +1,8 @@
 # ── Build stage ────────────────────────────────────────────────────────
-FROM node:22-slim AS build
+# Debian 13 (trixie) base: glibc (needed for onnxruntime and the SDK's native
+# binary) and a shell (the agent runs bash/git), with a much smaller CVE surface
+# than the bookworm-based slim images.
+FROM node:24-trixie-slim AS build
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
@@ -19,7 +22,7 @@ RUN npm prune --production
 RUN rm -rf node_modules/@anthropic-ai/claude-agent-sdk-linux-x64-musl
 
 # ── Runtime stage ─────────────────────────────────────────────────────
-FROM node:22-slim
+FROM node:24-trixie-slim
 WORKDIR /app
 
 # git and ca-certificates are needed by the SDK and for any npx fetches.
@@ -37,6 +40,14 @@ COPY --from=build /app/package.json ./
 COPY CLAUDE.md ./
 COPY coach-plugin/ ./coach-plugin/
 RUN chmod 444 CLAUDE.md && chmod -R 555 coach-plugin/
+
+# Bundled CLIs the agent runs via Bash (Notion helper, workspace builder, exercise
+# lookup) and the docs some skills reference. Read-only at runtime; their caches
+# write to /data, not here.
+COPY scripts/ ./scripts/
+COPY docs/ ./docs/
+RUN chmod -R 555 scripts/ docs/
+
 COPY entrypoint.sh ./
 RUN chmod +x entrypoint.sh
 

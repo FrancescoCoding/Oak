@@ -60,6 +60,7 @@ Note: Notion's public API cannot create or configure database *views* (grouping,
 - Default to a column layout, not a flat list of paragraphs and bullets. A flat stack on an overview page is a redirect waiting to happen.
 - Use coloured callout tiles (each with an emoji) inside columns: for example a Goals tile, a This Week tile, and a Body Stats tile side by side.
 - Dividers between major sections, H2/H3 headings per area, and a quote block for a coaching note.
+- Make it the central index: near the top, a compact linked row (a single callout works well) pointing to the key pages and databases (Programs, Goals, Body Stats, Workout Log, Knowledge Base), so the user can navigate from one place. Keep it to one tidy line, not a long list. Build links as rich text with a `link` (`{ type:"text", text:{ content:"Workout Log", link:{ url:"https://www.notion.so/<id-without-dashes>" } } }`), using ids from `data/notion-ids.json`. The default Dashboard built by setup-workspace.mjs already includes this row; preserve it when you rebuild or refresh.
 
 **Workout Log row**
 - Keep the structured values (Date, Focus, Status, Top Set, Volume, RPE, Duration, Week, Day, Program) in the database properties, not the body. See `docs/notion-architecture.md` for the exact schema.

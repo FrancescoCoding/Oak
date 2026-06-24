@@ -60,8 +60,8 @@ while the running agent is personalised to you. More in [docs/architecture.md](.
    ```bash
    claude setup-token
    ```
-   Copy the token it prints. This is what bills against your subscription. Do not set
-   `ANTHROPIC_API_KEY`: leaving it unset is what keeps you off the metered API.
+   Copy the `sk-ant-oat01-...` token into `CLAUDE_CODE_OAUTH_TOKEN`. The agent runs on your
+   subscription, so there's no metered per-token billing. The bot validates this at startup.
 
 4. **Create a Notion integration.** At
    [notion.com/my-integrations](https://www.notion.com/my-integrations), create an internal
