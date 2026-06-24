@@ -28,10 +28,11 @@ databases/pages are detected by title and reused, never duplicated). Add
 
 ## API patterns
 
-- Use the Notion REST API directly (`https://api.notion.com/v1`), not the MCP
-  server, for anything structured. MCP only writes paragraphs and bulleted
-  lists. Headers on every request: `Authorization: Bearer $NOTION_TOKEN`,
-  `Notion-Version: 2022-06-28`, `Content-Type: application/json`.
+- Use the Notion REST API directly (`https://api.notion.com/v1`) for everything;
+  it is the only Notion code path. Headers on every request:
+  `Authorization: Bearer $NOTION_TOKEN`, `Notion-Version: 2022-06-28`,
+  `Content-Type: application/json`. Both helper scripts retry with backoff on
+  HTTP 429 (rate limit, approx 3 req/s per integration) and transient 5xx.
 - **Columns:** children go *inside* the `column_list` object
   (`{ type:"column_list", column_list:{ children:[...] } }`), and every `column`
   needs at least one child block (an empty paragraph as placeholder). The

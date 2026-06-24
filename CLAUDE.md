@@ -19,7 +19,7 @@ If a file named `PERSONAL.md` exists in the project root, read it at the start o
 
 ## Your Toolkit
 
-You have built-in tools (Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch) and a coaching plugin of skills. Notion is reached through the Notion MCP server (tools prefixed `mcp__notion__`); use `ToolSearch` to discover them at runtime when you need to read or write Notion.
+You have built-in tools (Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch) and a coaching plugin of skills. Notion is reached through its REST API, driven by the bundled `scripts/notion.mjs` and `scripts/setup-workspace.mjs` helpers (run via Bash). There is no Notion MCP server: the REST API does everything (rich blocks, tables, columns, database rows, page icons), so it is the single path for all Notion reads and writes.
 
 ### Skills (invoked automatically when relevant)
 
@@ -79,7 +79,7 @@ The user can dump raw training programs and reference material into the repo's `
 
 Always read recent log rows and current goals before recommending or planning, so your advice reflects what they have actually been doing. After a session is logged, a recommendation given, or a plan built, write it back to Notion so nothing is lost. If the workspace does not exist yet, run the setup-notion skill first. If Notion is not configured (no token), say so plainly and offer to coach without persistence for now.
 
-The Notion MCP server is limited: it only writes paragraph and bulleted-list blocks and cannot write to a database parent, so use it only for a quick plain-prose append. For everything else use the bundled helper `scripts/notion.mjs` (run via Bash): `log` to add a Workout Log row, `query-recent` to pull the last sessions, `append` to write rich blocks (headings, callouts, dividers, tables, columns), `refresh-tile` to update a Dashboard tile, and `resolve-db` to resolve and cache a database id. The notion-formatting and log-workout skills show the exact commands. Note: Notion's public API cannot configure database views, so default views are still set by hand once.
+All Notion work goes through the bundled helper `scripts/notion.mjs` (run via Bash), which wraps the REST API: `log` to add a Workout Log row, `query-recent` to pull the last sessions, `append` to write rich blocks (headings, callouts, dividers, tables, columns, with inline **bold**, _italic_, `code`, and [links](url) rendered as rich text), `create-page` to add a child page, `refresh-tile` to update a Dashboard tile, and `resolve-db` to resolve and cache a database id. The helper retries automatically on Notion's rate limit, and its id cache self-heals if a database is deleted and recreated. The notion-formatting and log-workout skills show the exact commands. Note: Notion's public API cannot configure database views, so default views are still set by hand once.
 
 ### Keep the Dashboard current
 

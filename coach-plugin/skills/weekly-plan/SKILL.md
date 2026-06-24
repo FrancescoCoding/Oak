@@ -10,7 +10,7 @@ Produce a realistic plan for the coming week that moves the user toward their go
 ## 1. Gather context
 
 - Read `PERSONAL.md`: goals (in priority order), days and times available, session length, equipment, injuries, coaching style.
-- Pull recent Notion Workout Log rows (the `scripts/notion.mjs query-recent` helper is the quickest, or the `mcp__notion__` tools) to gauge recent volume, what was trained, and recovery state. Read current Goals.
+- Pull recent Notion Workout Log rows with `node scripts/notion.mjs query-recent --db "Workout Log"` to gauge recent volume, what was trained, and recovery state. Read current Goals.
 - When you read an existing program or week page, disambiguate by context, not just by name. Pages often share a name like "Week 1". Check the parent page title to confirm you have the right program (gym versus calisthenics, for example). If still ambiguous, ask which one in a single short question rather than guessing.
 
 ## 2. Design the plan

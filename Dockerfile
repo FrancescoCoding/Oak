@@ -51,9 +51,6 @@ RUN chmod -R 555 scripts/ docs/
 COPY entrypoint.sh ./
 RUN chmod +x entrypoint.sh
 
-# Pre-install the Notion MCP server so the SDK does not download it at runtime.
-RUN npm install -g @notionhq/notion-mcp-server@1.8.1
-
 # /data is the mountpoint for the persistent volume (sessions + schedule).
 RUN chown -R node:node /app/dist /app/node_modules /app/package.json /app/entrypoint.sh && \
     mkdir -p /home/node/.claude && chown -R node:node /home/node && \

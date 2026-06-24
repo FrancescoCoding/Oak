@@ -7,7 +7,7 @@ description: How to write clean, well-structured Notion pages (plans, reports, l
 
 When you write to Notion (weekly plans, progress reports, session notes, goal pages), make it look like something a thoughtful coach maintained, not a text dump.
 
-Important: the Notion MCP server only writes paragraphs and bulleted lists. For real structure (headings, callouts, dividers, tables) use the bundled helper, which writes rich blocks straight to the REST API:
+All Notion writes go through the bundled helper, which writes rich blocks straight to the REST API (there is no MCP server). Use it for everything (headings, callouts, dividers, tables, and plain prose alike):
 
 ```bash
 # Append rich blocks to a page from inline markdown or a file
@@ -15,7 +15,7 @@ node scripts/notion.mjs append --page <pageId> --file plan.md
 node scripts/notion.mjs append --page <pageId> --md "# Heading\n> [!note] Priority\n---\n| Day | Focus |\n| --- | --- |\n| Mon | Push |"
 ```
 
-The helper's markdown understands: `#`/`##`/`###` headings, `> [!note] text` callouts (put an emoji in the brackets to set the icon), `---` dividers, `-` bullets, `1.` numbered lists, `| a | b |` tables (first row is the header), column layouts, and plain paragraphs. Use it for any page where structure matters; the `mcp__notion__` tools are fine only for a quick single-paragraph append, never for anything structured.
+The helper's markdown understands: `#`/`##`/`###` headings, `> [!note] text` callouts (put an emoji in the brackets to set the icon), `---` dividers, `-` bullets, `1.` numbered lists, `| a | b |` tables (first row is the header), column layouts, and plain paragraphs. Inside any line it also renders inline `**bold**`, `_italic_`, `` `code` ``, and `[label](url)` links as Notion rich text (no literal asterisks left behind), so you can emphasise within a paragraph or table cell. Use it for every page.
 
 **Column layouts** (for dashboards and summary tiles) use this syntax: start with a line `::: columns`, separate each column with a line `|||`, and end with a line `:::`. Each column can contain any of the blocks above. Example:
 
