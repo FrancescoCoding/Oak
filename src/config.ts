@@ -17,6 +17,11 @@ export const config = {
   notionToken: process.env.NOTION_TOKEN ?? "",
   notionParentPageId: process.env.NOTION_PARENT_PAGE_ID ?? "",
 
+  // Claude subscription auth. The agent always runs on the subscription token
+  // from `claude setup-token` (sk-ant-oat01-...), never a metered API key. The
+  // SDK reads it from the environment; we surface it here to validate at startup.
+  claudeOauthToken: process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "",
+
   // Agent identity and behaviour
   agentName: process.env.AGENT_NAME ?? "Coach",
   timezone: process.env.TIMEZONE ?? "Europe/London",
@@ -44,6 +49,12 @@ export const config = {
     | "xhigh"
     | "max",
 
+  // Voice-note transcription: "local", "api", or "off". See docs/configuration.md.
+  transcribeProvider: (process.env.TRANSCRIBE_PROVIDER ?? "local") as "local" | "api" | "off",
+  transcribeApiUrl: process.env.TRANSCRIBE_API_URL ?? "https://api.openai.com/v1/audio/transcriptions",
+  transcribeApiKey: process.env.TRANSCRIBE_API_KEY ?? "",
+  transcribeModel: process.env.TRANSCRIBE_MODEL ?? "gpt-4o-transcribe",
+
   // Storage
   sessionFile: process.env.SESSION_FILE ?? "./data/sessions.json",
   scheduleFile: process.env.SCHEDULE_FILE ?? "./data/schedule.json",
@@ -68,4 +79,19 @@ function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
   return value;
+}
+
+/**
+ * Validate Claude auth at startup. Fails fast with a clear message if the
+ * subscription token is missing (otherwise the agent only fails later with a
+ * 401), which is exactly the misconfiguration that is easy to miss.
+ */
+export function checkClaudeAuth(): void {
+  if (!config.claudeOauthToken) {
+    throw new Error(
+      "CLAUDE_CODE_OAUTH_TOKEN is not set. Run `claude setup-token` and put the " +
+        "sk-ant-oat01-... token in your environment.",
+    );
+  }
+  console.log("[config] Claude auth: subscription token");
 }

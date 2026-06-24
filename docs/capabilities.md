@@ -33,11 +33,17 @@ tie it back to your goals.
 
 ## Voice notes
 
-Telegram voice notes are transcribed locally and free: the OGG/Opus is decoded
-with a bundled ffmpeg (`ffmpeg-static`) and transcribed by Whisper running
-in-process via Transformers.js (`src/media/transcribe.ts`). The transcript is
-treated as if you had typed it. The model downloads once and caches; pick the size
-with `WHISPER_MODEL`. No audio is sent to any third party.
+Telegram voice notes are transcribed and treated as if you had typed them. The
+provider is configurable via `TRANSCRIBE_PROVIDER`:
+
+- `local` (default): Whisper runs in-process (OGG/Opus decoded with bundled
+  `ffmpeg-static`, transcribed via Transformers.js). Free, private, no key, no
+  audio leaves the machine, but it needs a lot of RAM, so it suits self-hosting.
+- `api`: the audio is transcoded and sent to an OpenAI-compatible transcription
+  endpoint (OpenAI `gpt-4o-transcribe` by default). Tiny memory, needs a key, the
+  right choice for scale-to-zero deployments where running Whisper would force a
+  large instance.
+- `off`: voice notes are declined with a "type it out" reply.
 
 ## Exercise database
 

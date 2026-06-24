@@ -87,6 +87,10 @@ const box = (t, e, c = "default") => ({
   callout: { rich_text: RT(t), icon: { type: "emoji", emoji: e }, color: c },
 });
 const q = (t) => ({ type: "quote", quote: { rich_text: RT(t) } });
+// Inline link to a Notion page/database, for the Dashboard's index row.
+const pageUrl = (id) => `https://www.notion.so/${(id ?? "").replace(/-/g, "")}`;
+const link = (label, id) => ({ type: "text", text: { content: label, link: { url: pageUrl(id) } } });
+const sep = () => ({ type: "text", text: { content: "   ·   " } });
 // Column layout: children go INSIDE column_list, each column needs >=1 block.
 const colList = (...columns) => ({
   type: "column_list",
@@ -223,11 +227,12 @@ async function main() {
     console.log("= Programs already has rows");
   }
 
-  // 6. Dashboard page.
-  await ensureDashboard();
-
-  // 7. Knowledge Base page: where dumped training programs are organised.
+  // 6. Knowledge Base page: where dumped training programs are organised.
+  //    Built before the Dashboard so the Dashboard can link to it.
   await ensureKnowledgeBase();
+
+  // 7. Dashboard page (links to everything above).
+  await ensureDashboard();
 
   writeCache(cache);
   console.log("\nWorkspace ready. Ids cached to data/notion-ids.json");
@@ -257,8 +262,18 @@ async function ensureDashboard() {
 }
 
 async function buildDashboardBody(pageId) {
+  // Hero, then a compact one-line index linking to the rest of the workspace.
+  const indexLinks = [
+    link("Programs", cache.Programs),
+    sep(), link("Goals", cache.Goals),
+    sep(), link("Body Stats", cache["Body Stats"]),
+    sep(), link("Workout Log", cache["Workout Log"]),
+  ];
+  if (cache.__knowledgeBase) indexLinks.push(sep(), link("Knowledge Base", cache.__knowledgeBase));
+
   await append(pageId, [
     box("Current Program, Week 1, started recently", "🏋️", "blue_background"),
+    { type: "callout", callout: { icon: { type: "emoji", emoji: "🧭" }, color: "default", rich_text: indexLinks } },
     div(),
   ]);
   // Row 1: This Week | Goals | Body Stats

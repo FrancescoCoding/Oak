@@ -1,6 +1,6 @@
 import http from "http";
 import { Bot } from "grammy";
-import { config } from "./config.js";
+import { config, checkClaudeAuth } from "./config.js";
 import { isAllowed } from "./channel/permissions.js";
 import { evictExpired, getSession, clearSession } from "./agent/sessions.js";
 import { runAgent, classifyQuery } from "./agent/runner.js";
@@ -9,13 +9,26 @@ import { initScheduler } from "./scheduler/scheduler.js";
 import { startSchedulerServer } from "./scheduler/server.js";
 import { notionConfigured } from "./notion/mcp.js";
 import { pickPersonality } from "./agent/personalities.js";
-import { transcribeAudio, warmupTranscriber } from "./media/transcribe.js";
+import { transcribeAudio, warmupTranscriber, transcriptionAvailable } from "./media/transcribe.js";
 import { type Attachment, isSupportedAttachment } from "./media/attachments.js";
 import { toTelegramHtml, toPlainText } from "./channel/format.js";
 import { redactSecrets } from "./util/redact.js";
 import { startWebhookServer, registerTelegramWebhook } from "./channel/webhook-server.js";
 
 const bot = new Bot(config.telegramBotToken);
+
+// Respect Telegram flood control: on a 429, wait the requested retry_after and
+// retry, so replies are not dropped when messages go out too fast.
+bot.api.config.use(async (prev, method, payload, signal) => {
+  let result = await prev(method, payload, signal);
+  for (let attempt = 0; attempt < 3 && !result.ok && (result as any).error_code === 429; attempt++) {
+    const retryAfter = (result as any).parameters?.retry_after ?? 1;
+    await new Promise((r) => setTimeout(r, (retryAfter + 0.5) * 1000));
+    result = await prev(method, payload, signal);
+  }
+  return result;
+});
+
 registerBot(bot);
 
 // ─── Concurrency limiter ─────────────────────────────────────────────
@@ -213,13 +226,18 @@ bot.on("message", async (ctx) => {
 
   const attachments = await collectAttachments(ctx.message);
 
-  // Voice notes have no audio path to the model, so transcribe locally and treat
-  // the transcript as the user's text. A caption (text) takes precedence if both.
+  // Voice notes have no audio path to the model, so transcribe and treat the
+  // transcript as the user's text. A caption (text) takes precedence if both.
   if (!text.trim()) {
+    const isVoice = Boolean(ctx.message?.voice || ctx.message?.audio || ctx.message?.video_note);
+    if (isVoice && !transcriptionAvailable()) {
+      await ctx.reply("I can't transcribe voice notes in this setup. Type it out and I've got you.");
+      return;
+    }
     try {
       const transcript = await transcribeVoiceNote(ctx.message);
       if (transcript === "") {
-        if (ctx.message?.voice || ctx.message?.audio || ctx.message?.video_note) {
+        if (isVoice) {
           await ctx.reply("I couldn't make out that voice note. Try again, or type it out.");
         }
       } else if (transcript != null) {
@@ -291,6 +309,7 @@ setInterval(evictExpired, 15 * 60 * 1000);
 // ─── Start ───────────────────────────────────────────────────────────
 
 (async () => {
+  checkClaudeAuth();
   startSchedulerServer();
   await initScheduler();
   await bot.init();

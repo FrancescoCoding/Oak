@@ -45,9 +45,11 @@ response** so the background run finishes (on Cloud Run that is
 `--no-cpu-throttling`), and you should cap it to **one instance** so a single
 instance owns the mounted storage.
 
-> Note: local voice-note transcription loads a Whisper model into memory and uses
-> CPU per note. That suits always-on hosts; on scale-to-zero it adds cold-start
-> cost and the model cannot stay warm, so consider disabling voice there.
+**Voice notes:** do not run local Whisper here. It loads a model into memory,
+which would force a large, always-paid instance even for plain text messages. On
+scale-to-zero set `TRANSCRIBE_PROVIDER=api` (OpenAI `gpt-4o-transcribe` by
+default) so transcription is a quick API call and the instance stays small
+(~1 GiB). Reserve `local` for always-on self-hosting where the RAM is free.
 
 ### Ready-to-use examples
 

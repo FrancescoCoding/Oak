@@ -9,7 +9,7 @@ comments; this page explains each setting.
 
 | Variable | What it is |
 |---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | Your Claude subscription token from `claude setup-token`. Leaving `ANTHROPIC_API_KEY` unset is what keeps billing on your subscription rather than the metered API. |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude **subscription** token from `claude setup-token` (`sk-ant-oat01-...`). No metered cost; the bot validates it at startup. |
 | `TELEGRAM_BOT_TOKEN` | Bot token from [@BotFather](https://t.me/BotFather). |
 | `ALLOWED_TELEGRAM_IDS` | Comma-separated numeric user ids allowed to use the bot. Everyone else is ignored. Find yours via [@userinfobot](https://t.me/userinfobot). |
 | `OWNER_CHAT_ID` | Chat that receives proactive reminders, usually your own id. |
@@ -62,8 +62,17 @@ See [deployment.md](./deployment.md) for how the two modes map to hosts.
 
 | Variable | Default | What it is |
 |---|---|---|
-| `WHISPER_MODEL` | `Xenova/whisper-base` | Local Whisper model for voice-note transcription. `whisper-tiny` is faster, `whisper-small` more accurate. Downloads once and caches. |
+| `TRANSCRIBE_PROVIDER` | `local` | Voice-note transcription: `local` (in-process Whisper, free/private, needs RAM, self-hosting only), `api` (OpenAI-compatible endpoint, tiny memory, needs a key, right for the cloud), or `off` (disable voice). |
+| `WHISPER_MODEL` | `Xenova/whisper-base` | Local model when `TRANSCRIBE_PROVIDER=local`. `whisper-tiny` faster, `whisper-small` more accurate. |
+| `TRANSCRIBE_API_KEY` | (none) | Required for `api`. The transcription provider's key (e.g. your OpenAI key). This is separate from your Claude auth. |
+| `TRANSCRIBE_API_URL` | OpenAI `/audio/transcriptions` | OpenAI-compatible transcription URL. Point at another provider (e.g. Groq) if preferred. |
+| `TRANSCRIBE_MODEL` | `gpt-4o-transcribe` | Model for the `api` provider. `gpt-4o-transcribe` tops accuracy benchmarks; `gpt-4o-mini-transcribe` is cheaper. |
 | `EXERCISE_DB_URL` | free-exercise-db raw JSON | Override only if you self-host the exercise dataset. |
+
+> **Deployments:** local Whisper forces a large, always-paid instance (the model
+> sits in memory for every request, voice or not), so on scale-to-zero hosts set
+> `TRANSCRIBE_PROVIDER=api` (OpenAI `gpt-4o-transcribe` by default) and keep the
+> instance small (~1 GiB). Reserve `local` for self-hosting where you have the RAM.
 | `EXERCISE_DB_IMAGE_BASE` | free-exercise-db images | Override only if you self-host the exercise images. |
 
 ## Reminders

@@ -100,7 +100,9 @@ resource "google_storage_bucket_iam_member" "data_rw" {
 # ── Secrets ─────────────────────────────────────────────────────────────────────
 resource "google_secret_manager_secret" "claude" {
   secret_id = "${var.service_name}-claude-oauth"
-  replication { auto {} }
+  replication {
+    auto {}
+  }
   depends_on = [google_project_service.apis]
 }
 resource "google_secret_manager_secret_version" "claude" {
@@ -110,7 +112,9 @@ resource "google_secret_manager_secret_version" "claude" {
 
 resource "google_secret_manager_secret" "telegram" {
   secret_id = "${var.service_name}-telegram-token"
-  replication { auto {} }
+  replication {
+    auto {}
+  }
   depends_on = [google_project_service.apis]
 }
 resource "google_secret_manager_secret_version" "telegram" {
@@ -120,7 +124,9 @@ resource "google_secret_manager_secret_version" "telegram" {
 
 resource "google_secret_manager_secret" "cron" {
   secret_id = "${var.service_name}-cron-secret"
-  replication { auto {} }
+  replication {
+    auto {}
+  }
   depends_on = [google_project_service.apis]
 }
 resource "google_secret_manager_secret_version" "cron" {
@@ -131,7 +137,9 @@ resource "google_secret_manager_secret_version" "cron" {
 resource "google_secret_manager_secret" "notion" {
   count     = var.notion_token != "" ? 1 : 0
   secret_id = "${var.service_name}-notion-token"
-  replication { auto {} }
+  replication {
+    auto {}
+  }
   depends_on = [google_project_service.apis]
 }
 resource "google_secret_manager_secret_version" "notion" {
