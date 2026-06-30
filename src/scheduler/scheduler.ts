@@ -1,9 +1,9 @@
 import fs from "fs";
-import path from "path";
 import { Cron } from "croner";
 import { config } from "../config.js";
 import { runAgent, type ModelTier } from "../agent/runner.js";
 import { sendMessage } from "../channel/notify.js";
+import { writeJsonAtomic } from "../util/atomicfile.js";
 
 /**
  * Cron-based scheduler for proactive coaching: morning session nudges, the weekly
@@ -110,6 +110,9 @@ export async function executeTask(task: ScheduledTask): Promise<void> {
 }
 
 export function addTask(task: ScheduledTask): void {
+  if (definitions.some((t) => t.id === task.id)) {
+    console.warn(`[scheduler] Task id "${task.id}" already exists; replacing it.`);
+  }
   definitions = [...definitions.filter((t) => t.id !== task.id), task];
   // Only start a live croner job in polling mode; webhook mode is fired externally.
   if (config.mode === "polling") startTask(task);
@@ -158,8 +161,7 @@ function loadFromDisk(): ScheduledTask[] {
 
 function saveToDisk(all: ScheduledTask[]): void {
   try {
-    fs.mkdirSync(path.dirname(SCHEDULE_FILE), { recursive: true });
-    fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(all, null, 2), "utf-8");
+    writeJsonAtomic(SCHEDULE_FILE, all);
   } catch (err) {
     console.warn("[scheduler] Failed to persist schedule file:", (err as Error).message);
   }

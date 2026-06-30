@@ -68,17 +68,21 @@ Note: Notion's public API cannot create or configure database *views* (grouping,
 
 ## Keep the Dashboard in sync
 
-If the workspace has a Dashboard page (built by setup-notion), keep its tiles current after you change the underlying data, so the user never has to ask. Use the `refresh-tile` command, which replaces the whole tile (never edit blocks in place; their ids shift). Tile ids are cached in `data/notion-ids.json`, so refer to tiles by name:
+If the workspace has a Dashboard page (built by setup-notion), keep its tiles current after you change the underlying data, so the user never has to ask.
+
+**Preferred for the three data tiles (This Week, Goals, Body Stats):** run one command.
 
 ```bash
-node scripts/notion.mjs refresh-tile --tile goals     --md "> [🎯] **Goals**\n- Squat 100kg by Sept"
-node scripts/notion.mjs refresh-tile --tile bodyStats --md "..."
-node scripts/notion.mjs refresh-tile --tile thisWeek  --md "..."
+node scripts/notion.mjs sync-dashboard --now 2026-06-30   # --now is the date from the Telegram header
 ```
 
-- After adding or changing a goal, refresh the `goals` tile (re-query the Goals DB).
-- After logging body weight or stats, refresh the `bodyStats` tile.
-- After logging a session, refresh the `thisWeek` tile (re-query the Workout Log for the current week: sessions completed, last session, next session).
+`sync-dashboard` re-derives all three tiles directly from the databases (session counts, goal progress, latest body stats), so the numbers are always consistent with the data and never hand-typed. Run it after logging a session, changing a goal, or logging body stats.
+
+For one-off or prose tiles, `refresh-tile` replaces a single tile from your own markdown (never edit blocks in place; their ids shift). Tile ids are cached in `data/notion-ids.json`, so refer to tiles by name:
+
+```bash
+node scripts/notion.mjs refresh-tile --tile goals --md "> [🎯] **Goals**\n- Squat 100kg by Sept"
+```
 
 Rebuild the whole Dashboard (`node scripts/setup-workspace.mjs --rebuild-dashboard`) when the program changes, the week advances, or more than three tiles need updating at once. If no Dashboard exists, do not invent one unprompted; offer to build it via setup-notion.
 

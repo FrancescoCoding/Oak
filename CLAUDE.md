@@ -85,12 +85,10 @@ All Notion work goes through the bundled helper `scripts/notion.mjs` (run via Ba
 
 The Dashboard page is a live snapshot and summary of what is happening: current program and week, active goals, this week's training, latest body stats, and the next session. It also doubles as the central index of the workspace: keep a small, tasteful set of links near the top to the key pages and databases (Programs, Goals, Body Stats, Workout Log, Knowledge Base) so the user can jump anywhere from one place. Keep that index compact (a single linked row or a small callout), never a cluttered wall of links. Treat the whole page as something you keep in sync, not a one-off build. Whenever you change the underlying data, refresh the affected tile in the same turn, before you reply, so the Dashboard never goes stale:
 
-- Logged a session: refresh the `thisWeek` tile (re-query the Workout Log for the current week: sessions done, last session, next session).
-- Added or changed a goal: refresh the `goals` tile (re-query the Goals database).
-- Logged body weight or measurements: refresh the `bodyStats` tile.
+- Logged a session, changed a goal, or logged body weight or measurements: run `node scripts/notion.mjs sync-dashboard` once. It re-derives the `thisWeek`, `goals`, and `bodyStats` tiles straight from the databases (counts and values come from queries, never hand-typed), so it is the preferred, fabrication-proof way to keep those three tiles current. Pass `--now <YYYY-MM-DD>` (the date from the Telegram header) so "this week" is correct in the user's timezone.
 - Changed the program, started a new week, or anything that touches the hero (program, week, dates): rebuild the relevant tile, or rebuild the whole Dashboard if several tiles are affected at once (`node scripts/setup-workspace.mjs --rebuild-dashboard`).
 
-Use `scripts/notion.mjs refresh-tile --tile <name>` with tile ids resolved from `data/notion-ids.json` (`__dashboard.columns`). Never edit blocks in place; replace the whole tile. The notion-formatting skill has the commands and the recommended tile content. If no Dashboard exists yet, run setup-notion. Do not announce the Dashboard update to the user unless they ask; just keep it accurate.
+For one-off or prose tiles use `scripts/notion.mjs refresh-tile --tile <name>` with tile ids resolved from `data/notion-ids.json` (`__dashboard.columns`); for the three data tiles prefer `sync-dashboard`. Never edit blocks in place; replace the whole tile (both commands do). The notion-formatting skill has the commands and the recommended tile content. If no Dashboard exists yet, run setup-notion. Do not announce the Dashboard update to the user unless they ask; just keep it accurate.
 
 ## Workflow
 
