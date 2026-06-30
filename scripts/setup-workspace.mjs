@@ -16,7 +16,7 @@
  * data/notion-ids.json so the agent and the notion.mjs helper can find them on
  * this instance. The committed code hardcodes no ids; they are per-workspace.
  *
- * Uses the Notion REST API directly (the MCP server cannot build this).
+ * Uses the Notion REST API directly.
  *
  * Usage:
  *   node scripts/setup-workspace.mjs                 # build/repair, keep existing dashboard content
@@ -48,19 +48,38 @@ if (!HUB) {
   process.exit(1);
 }
 
+// Notion rate-limits at ~3 req/s per integration, so a builder that creates
+// several databases, rows, and dozens of blocks can hit HTTP 429. Retry with
+// backoff (honouring Retry-After) on 429 and transient 5xx, then surface the
+// error if it persists.
+const MAX_RETRIES = 5;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function api(pathname, method = "GET", body) {
-  const res = await fetch(`${API}/${pathname}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${TOKEN}`,
-      "Notion-Version": "2022-06-28",
-      "Content-Type": "application/json",
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Notion ${method} ${pathname} -> ${res.status}: ${json.message ?? ""}`);
-  return json;
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${API}/${pathname}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : Math.min(2 ** attempt, 8) * 1000;
+      await sleep(waitMs);
+      continue;
+    }
+
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`Notion ${method} ${pathname} -> ${res.status}: ${json.message ?? ""}`);
+    return json;
+  }
 }
 
 // ─── cache ───────────────────────────────────────────────────────────────────

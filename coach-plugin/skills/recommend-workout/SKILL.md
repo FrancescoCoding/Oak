@@ -24,7 +24,7 @@ On the first message of a new conversation, check that `PERSONAL.md` has real go
   node scripts/notion.mjs query-recent --db "Workout Log" --focus Push --limit 3
   ```
 
-  Use the returned loads and RPE as the reference point for today's prescription. (You can also use the `mcp__notion__` tools, but the helper is one call and already sorted by date.) Check the current week's plan if one exists.
+  Use the returned loads and RPE as the reference point for today's prescription. The helper is one call and already sorted by date. Check the current week's plan if one exists.
 
 ## 2. Decide the session
 

@@ -10,7 +10,7 @@ Turn the Notion Workout Log into an honest, motivating read on how the user is d
 ## 1. Pull the data
 
 - Decide the window from the request (this week, last month, or a sensible default like the last 4 weeks).
-- Query the Notion Workout Log (load tools with `ToolSearch`, prefix `mcp__notion__`) for sessions in that window. Read current Goals and `PERSONAL.md` for what success looks like.
+- Query the Notion Workout Log with `node scripts/notion.mjs query-recent --db "Workout Log"` for sessions in that window. Read current Goals and `PERSONAL.md` for what success looks like.
 
 ## 2. Analyse
 

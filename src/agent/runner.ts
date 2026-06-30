@@ -3,7 +3,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { config } from "../config.js";
 import { getSession, setSession, clearSession } from "./sessions.js";
-import { getMcpServers } from "../notion/mcp.js";
 import { type Attachment, buildUserContent } from "../media/attachments.js";
 import { pickPersonality, personaSystemPrompt } from "./personalities.js";
 
@@ -71,7 +70,8 @@ export interface AgentResponse {
 /**
  * Run the Claude agent for one incoming message.
  *
- *  - "standard" uses the full coaching model with tools, plugin, and Notion MCP.
+ *  - "standard" uses the full coaching model with tools, the coach plugin, and the
+ *    Notion REST helpers (scripts/notion.mjs) run via Bash.
  *  - "fast" uses the cheaper model with the same tooling for trivial logging.
  *
  * Auth runs against the Claude subscription via CLAUDE_CODE_OAUTH_TOKEN (set in
@@ -128,7 +128,6 @@ export async function runAgent(opts: {
           "Bash", "Read", "Write", "Edit", "Glob", "Grep",
           "WebFetch", "WebSearch", "Skill",
         ],
-        mcpServers: getMcpServers(),
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         maxTurns: modelTier === "fast" ? 15 : 60,

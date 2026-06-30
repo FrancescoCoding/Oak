@@ -62,11 +62,13 @@ start and end demo image for a movement.
 
 ## Notion tooling
 
-The Notion MCP server only writes paragraphs and bulleted lists and cannot target
-a database parent, so the agent uses `scripts/notion.mjs` for real work: logging
-rows, querying recent sessions, writing rich blocks (headings, callouts, dividers,
-tables, columns), and refreshing Dashboard tiles. The full workspace schema, build
-order, API patterns, and Dashboard layout are in
+The agent talks to Notion entirely through its REST API via `scripts/notion.mjs`
+(there is no MCP server): logging rows, querying recent sessions, writing rich
+blocks (headings, callouts, dividers, tables, columns, with inline bold/italic/
+code/links), creating pages, and refreshing Dashboard tiles. The helper retries
+automatically on Notion's rate limit and self-heals its local id cache if a
+database is deleted and recreated. The full workspace schema, build order, API
+patterns, and Dashboard layout are in
 [notion-architecture.md](./notion-architecture.md).
 
 ## Knowledge base
