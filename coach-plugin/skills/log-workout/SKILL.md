@@ -34,8 +34,7 @@ user's sessions there. If a search returns several candidates, pick the one whos
 parent is the main training/workspace page, not a week or program page.
 
 Add a row to the Workout Log database with the bundled helper, which writes
-directly to the database (the Notion MCP post-page tool cannot target a database
-parent, so prefer the helper for logging):
+directly to the database through the Notion REST API:
 
 ```bash
 node scripts/notion.mjs log --db "Workout Log" \

@@ -18,7 +18,7 @@ runAgent  (src/agent/runner.ts)            ── Claude Agent SDK query()
   │   • session resume   (src/agent/sessions.ts)
   │   • CLAUDE.md persona + coach-plugin skills
   │   • tools: Bash, Read/Write/Edit, Glob/Grep, WebFetch/WebSearch, Skill
-  │   • Notion MCP server (src/notion/mcp.ts) + scripts/notion.mjs via Bash
+  │   • Notion via the REST API (scripts/notion.mjs) run through Bash
   ▼
 reply  (src/channel/notify.ts, format.ts)  ── markdown → Telegram HTML, em-dash stripped, secrets redacted
 
@@ -40,7 +40,7 @@ generic while the running agent is personalised to you.
 | `src/agent/` | The agent loop (`runner.ts`), persona overlays (`personalities.ts`), and per-chat session store (`sessions.ts`). |
 | `src/channel/` | Telegram transport: `notify.ts` (send), `format.ts` (markdown→HTML, em-dash strip), `webhook-server.ts`, `permissions.ts` (allowlist). |
 | `src/media/` | Inbound media: `attachments.ts` (images/PDFs → content blocks), `transcribe.ts` (voice notes → text). |
-| `src/notion/` | `mcp.ts` wires the Notion MCP server into the SDK. |
+| `src/notion/` | `status.ts` reports whether Notion is configured (a `NOTION_TOKEN` is set). All Notion I/O goes through `scripts/notion.mjs` via Bash. |
 | `src/scheduler/` | `scheduler.ts` (croner reminders) and `server.ts` (the localhost control plane). |
 | `src/util/` | `redact.ts` (secret scrubbing) and `dedupe.ts` (webhook idempotency). |
 
@@ -51,7 +51,7 @@ plus deploy helpers:
 
 | Script | Purpose |
 |---|---|
-| `scripts/notion.mjs` | Notion REST helper: `log`, `query-recent`, `append` (rich blocks + columns), `refresh-tile`, `resolve-db`. Works around the MCP server's limits. |
+| `scripts/notion.mjs` | Notion REST helper: `log`, `query-recent`, `append` (rich blocks + columns + inline formatting), `create-page`, `refresh-tile`, `resolve-db`. Retries on rate limits; self-heals a stale id cache. Unit-tested by `scripts/notion.test.mjs` (`npm test`). |
 | `scripts/setup-workspace.mjs` | Idempotent builder for the full Notion workspace (databases + Dashboard). See [notion-architecture.md](./notion-architecture.md). |
 | `scripts/exercise-db.mjs` | Queries the free, keyless exercise dataset (see [capabilities.md](./capabilities.md)). |
 | `scripts/deploy-cloudrun.sh` | Google Cloud Run deploy (see [deployment.md](./deployment.md)). |
