@@ -302,9 +302,10 @@ async function buildDashboardBody(pageId) {
   // Row 1: This Week | Goals | Body Stats
   await append(pageId, [
     colList(
+      // Tile header colors are canonical; keep in sync with TILE_COLORS in notion.mjs.
       [box("This Week", "📅", "gray_background"), bul("Log a session to populate this tile.")],
-      [box("Goals", "🎯", "gray_background"), bul("Add a goal to populate this tile.")],
-      [box("Body Stats", "⚖️", "gray_background"), bul("Log a check-in to populate this tile.")],
+      [box("Goals", "🎯", "brown_background"), bul("Add a goal to populate this tile.")],
+      [box("Body Stats", "⚖️", "red_background"), bul("Log a check-in to populate this tile.")],
     ),
     div(),
   ]);

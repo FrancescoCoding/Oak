@@ -92,6 +92,24 @@ test("markdownToBlocks: callout keeps its emoji icon", () => {
   assert.equal(blocks[0].callout.rich_text[0].text.content, "Goals");
 });
 
+test("markdownToBlocks: callout parses an explicit background color", () => {
+  const blocks = markdownToBlocks("> [📅|gray_background] **This Week**");
+  assert.equal(blocks[0].callout.icon.emoji, "📅");
+  assert.equal(blocks[0].callout.color, "gray_background");
+});
+
+test("markdownToBlocks: callout with an unknown color falls back to default", () => {
+  const blocks = markdownToBlocks("> [📅|chartreuse] Hi");
+  assert.equal(blocks[0].callout.color, "default");
+});
+
+test("tile renderers carry their canonical, distinct colors", () => {
+  const color = (md) => markdownToBlocks(md)[0].callout.color;
+  assert.equal(color(renderThisWeekTile([])), "gray_background");
+  assert.equal(color(renderGoalsTile([])), "brown_background");
+  assert.equal(color(renderBodyStatsTile(null)), "red_background");
+});
+
 test("markdownToBlocks: table parses cells and skips the separator row", () => {
   const blocks = markdownToBlocks("| Day | Focus |\n| --- | --- |\n| Mon | Push |");
   assert.equal(blocks[0].type, "table");

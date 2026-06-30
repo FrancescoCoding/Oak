@@ -290,6 +290,31 @@ function rt(text) {
   return parsed.length ? parsed : [plain(text ?? "")];
 }
 
+// The Notion "color" values valid on a callout/text block. Anything outside this
+// set is rejected so a typo silently degrades to "default" instead of erroring.
+const NOTION_COLORS = new Set([
+  "default", "gray", "brown", "orange", "yellow", "green", "blue", "purple",
+  "pink", "red",
+  "gray_background", "brown_background", "orange_background", "yellow_background",
+  "green_background", "blue_background", "purple_background", "pink_background",
+  "red_background",
+]);
+
+/** Canonical, fixed background for each named Dashboard tile, so colors never
+ * drift between refreshes. The render functions and setup-workspace.mjs both
+ * use these, and refresh-tile re-applies them. Keep the two files in sync. */
+const TILE_COLORS = {
+  thisWeek: "gray_background",
+  goals: "brown_background",
+  bodyStats: "red_background",
+};
+
+/** Validate a Notion color, returning "default" for missing/unknown values. */
+function normalizeColor(color) {
+  const c = (color ?? "").trim();
+  return NOTION_COLORS.has(c) ? c : "default";
+}
+
 /** Minimal but useful converter: headings, callouts, dividers, lists, tables, paragraphs. */
 function markdownToBlocks(md) {
   const lines = md.replace(/\\n/g, "\n").split("\n");
@@ -345,15 +370,22 @@ function markdownToBlocks(md) {
       i++; continue;
     }
 
-    // Callout: "> [!note] text" or "> [icon] text" or plain "> text"
+    // Callout: "> [!note] text", "> [icon] text", "> [icon|color] text", or plain "> text".
+    // The optional "|color" after the icon sets the callout background (e.g.
+    // "> [📅|gray_background] **This Week**"); unknown colors fall back to default.
     const callout = trimmed.match(/^>\s*(?:\[!?([^\]]+)\]\s*)?(.*)$/);
     if (callout) {
-      const icon = (callout[1] ?? "").trim();
-      const emoji = /\p{Emoji}/u.test(icon) ? icon : "💡";
+      const [iconPart, colorPart] = (callout[1] ?? "").split("|").map((s) => s.trim());
+      const emoji = /\p{Emoji}/u.test(iconPart ?? "") ? iconPart : "💡";
+      const color = normalizeColor(colorPart);
       blocks.push({
         object: "block",
         type: "callout",
-        callout: { rich_text: rt(callout[2] ?? ""), icon: { type: "emoji", emoji } },
+        callout: {
+          rich_text: rt(callout[2] ?? ""),
+          icon: { type: "emoji", emoji },
+          color,
+        },
       });
       i++; continue;
     }
@@ -457,7 +489,7 @@ function startOfWeekUTC(d) {
 // numbers come straight from Notion queries (never the model), which is what
 // keeps the Dashboard honest. Exported for unit tests.
 function renderThisWeekTile(sessions) {
-  const lines = ["> [📅] **This Week**"];
+  const lines = [`> [📅|${TILE_COLORS.thisWeek}] **This Week**`];
   if (!sessions.length) {
     lines.push("- No sessions logged yet this week.");
   } else {
@@ -470,7 +502,7 @@ function renderThisWeekTile(sessions) {
 }
 
 function renderGoalsTile(goals) {
-  const lines = ["> [🎯] **Goals**"];
+  const lines = [`> [🎯|${TILE_COLORS.goals}] **Goals**`];
   const active = goals.filter((g) => g.status !== "Achieved" && g.status !== "Paused");
   const show = (active.length ? active : goals).slice(0, 5);
   if (!show.length) {
@@ -485,7 +517,7 @@ function renderGoalsTile(goals) {
 }
 
 function renderBodyStatsTile(latest) {
-  const lines = ["> [⚖️] **Body Stats**"];
+  const lines = [`> [⚖️|${TILE_COLORS.bodyStats}] **Body Stats**`];
   if (!latest) {
     lines.push("- No check-ins logged yet.");
   } else {
@@ -503,10 +535,16 @@ function renderBodyStatsTile(latest) {
  * leaves the old tile intact (brief duplication) rather than wiping it to empty.
  * Returns the number of blocks written.
  */
-async function replaceTileContent(columnId, md) {
+async function replaceTileContent(columnId, md, forceColor) {
   const existing = await notion(`/blocks/${columnId}/children`);
   const oldIds = (existing.results ?? []).map((b) => b.id);
   const blocks = markdownToBlocks(md);
+  // Lock the tile's header callout to its canonical color so it never drifts,
+  // regardless of what color (if any) the source markdown specified.
+  if (forceColor) {
+    const header = blocks.find((b) => b.type === "callout");
+    if (header) header.callout.color = normalizeColor(forceColor);
+  }
   for (let i = 0; i < blocks.length; i += 100) {
     await notion(`/blocks/${columnId}/children`, "PATCH", { children: blocks.slice(i, i + 100) });
   }
@@ -604,7 +642,7 @@ async function cmdRefreshTile(args) {
   const md = args.file ? fs.readFileSync(args.file, "utf8") : (args.md ?? "");
   if (!md.trim()) throw new Error("Nothing to write: pass --md or --file");
 
-  const written = await replaceTileContent(columnId, md);
+  const written = await replaceTileContent(columnId, md, TILE_COLORS[args.tile]);
   console.log(`Refreshed tile ${args.tile ?? columnId} with ${written} block(s)`);
 }
 
@@ -641,7 +679,7 @@ async function cmdSyncDashboard(args) {
       name: readProp(pg.properties?.[titleProp]),
       focus: focusProp ? readProp(pg.properties?.[focusProp]) : "",
     }));
-    await replaceTileContent(cols.thisWeek, renderThisWeekTile(sessions));
+    await replaceTileContent(cols.thisWeek, renderThisWeekTile(sessions), TILE_COLORS.thisWeek);
   }
 
   // Goals: active goals with current/target progress.
@@ -659,7 +697,7 @@ async function cmdSyncDashboard(args) {
       current: curProp ? readProp(pg.properties?.[curProp]) : "",
       target: tgtProp ? readProp(pg.properties?.[tgtProp]) : "",
     }));
-    await replaceTileContent(cols.goals, renderGoalsTile(goals));
+    await replaceTileContent(cols.goals, renderGoalsTile(goals), TILE_COLORS.goals);
   }
 
   // Body Stats: the latest check-in.
@@ -680,7 +718,7 @@ async function cmdSyncDashboard(args) {
           waist: waistProp ? readProp(row.properties?.[waistProp]) : "",
         }
       : null;
-    await replaceTileContent(cols.bodyStats, renderBodyStatsTile(latest));
+    await replaceTileContent(cols.bodyStats, renderBodyStatsTile(latest), TILE_COLORS.bodyStats);
   }
 
   console.log("Synced Dashboard tiles (This Week, Goals, Body Stats) from Notion.");
