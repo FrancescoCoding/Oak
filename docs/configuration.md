@@ -31,8 +31,9 @@ what gets built.
 |---|---|---|
 | `AGENT_NAME` | `Coach` | What the coach calls itself (plain-coach mode). |
 | `TIMEZONE` | `Europe/London` | Timezone for reminders and the message-header clock. |
-| `CLAUDE_MODEL` | `claude-sonnet-4-6` | Model for real coaching, planning, and advice. |
-| `CLAUDE_MODEL_FAST` | `claude-haiku-4-5` | Cheaper model used for trivial logging messages. |
+| `CLAUDE_MODEL` | `claude-sonnet-4-6` | Model for real coaching, planning, and advice (and for everything unless the fast tier is enabled). Set to `claude-opus-4-8` for Opus. |
+| `CLAUDE_MODEL_FAST` | `claude-haiku-4-5` | Cheaper model used for trivial logging messages, only when `FAST_TIER_ENABLED=true`. |
+| `FAST_TIER_ENABLED` | `false` | When `true`, short transactional logging messages on new chats route to `CLAUDE_MODEL_FAST` to save subscription usage. Off by default so every message uses `CLAUDE_MODEL` for consistent behaviour. |
 | `REASONING_EFFORT` | `medium` | Thinking depth for the standard model: `low \| medium \| high \| xhigh \| max`. Lower is faster and cheaper. |
 | `PERSONALITIES_ENABLED` | `true` | Persona overlays (owner gets Arnold, others a stable random character). `false` keeps everyone on the plain coach. See [customization.md](./customization.md). |
 
@@ -52,9 +53,9 @@ cache (`data/notion-ids.json`) also lives here.
 | Variable | Default | What it is |
 |---|---|---|
 | `MODE` | `polling` (or `webhook` if `PUBLIC_BASE_URL` is set) | `polling` long-polls Telegram (always-on hosts); `webhook` runs an HTTP server for scale-to-zero hosts. |
-| `PUBLIC_BASE_URL` | (none) | Required in webhook mode: the service's public HTTPS URL. |
+| `PUBLIC_BASE_URL` | (none) | Required in webhook mode: the service's public HTTPS URL. Startup fails fast if `MODE=webhook` and this is unset. |
 | `PORT` | `8080` | HTTP port (health checks, webhook, scheduler). |
-| `CRON_SECRET` | (none) | Required in webhook mode: bearer secret an external scheduler sends to `POST /cron/run`. |
+| `CRON_SECRET` | (none) | Required in webhook mode: bearer secret an external scheduler sends to `POST /cron/run`. Startup fails fast if `MODE=webhook` and this is unset, so the reminder endpoint is never left unauthenticated. |
 
 See [deployment.md](./deployment.md) for how the two modes map to hosts.
 

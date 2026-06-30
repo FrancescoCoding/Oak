@@ -8,6 +8,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { config } from "../config.js";
+import { writeJsonAtomic } from "../util/atomicfile.js";
 
 interface SessionEntry {
   sessionId: string;
@@ -52,14 +53,11 @@ function loadFromDisk(): void {
 /** Persist current sessions to disk. */
 function saveToDisk(): void {
   try {
-    fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
     const data: Record<string, SessionEntry> = {};
     for (const [key, entry] of sessions) {
       data[key] = entry;
     }
-    const tmpFile = SESSION_FILE + ".tmp";
-    fs.writeFileSync(tmpFile, JSON.stringify(data), "utf-8");
-    fs.renameSync(tmpFile, SESSION_FILE);
+    writeJsonAtomic(SESSION_FILE, data);
   } catch (err) {
     console.warn("[sessions] Failed to persist sessions to disk:", (err as Error).message);
   }

@@ -1,6 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseInline, markdownToBlocks, buildPropertyValue } from "./notion.mjs";
+import {
+  parseInline,
+  markdownToBlocks,
+  buildPropertyValue,
+  validateValue,
+  optionNames,
+  startOfWeekUTC,
+  renderThisWeekTile,
+  renderGoalsTile,
+  renderBodyStatsTile,
+} from "./notion.mjs";
 
 // ─── inline rich text ─────────────────────────────────────────────────────────
 
@@ -108,4 +118,79 @@ test("buildPropertyValue: coerces by schema type", () => {
   );
   assert.equal(buildPropertyValue("date", "2026-06-23").date.start, "2026-06-23");
   assert.equal(buildPropertyValue("checkbox", "yes").checkbox, true);
+});
+
+// ─── value validation ───────────────────────────────────────────────────────────
+
+const selectDef = { type: "select", select: { options: [{ name: "Active" }, { name: "Paused" }] } };
+const multiDef = {
+  type: "multi_select",
+  multi_select: { options: [{ name: "Chest" }, { name: "Back" }, { name: "Legs" }] },
+};
+
+test("optionNames: reads allowed options for select/multi_select, null otherwise", () => {
+  assert.deepEqual(optionNames(selectDef), ["Active", "Paused"]);
+  assert.deepEqual(optionNames(multiDef), ["Chest", "Back", "Legs"]);
+  assert.equal(optionNames({ type: "number" }), null);
+});
+
+test("validateValue: rejects an unknown select option and lists valid ones", () => {
+  assert.throws(() => validateValue("Status", selectDef, "Sprinting"), /Allowed: Active, Paused/);
+});
+
+test("validateValue: accepts a valid select option", () => {
+  assert.doesNotThrow(() => validateValue("Status", selectDef, "Active"));
+});
+
+test("validateValue: rejects an unknown member of a multi_select", () => {
+  assert.throws(() => validateValue("Focus", multiDef, "Chest, Push"), /"Push" is not a valid option/);
+});
+
+test("validateValue: rejects out-of-range RPE", () => {
+  assert.throws(() => validateValue("RPE (1-10)", { type: "number" }, "12"), /between 1 and 10/);
+  assert.doesNotThrow(() => validateValue("RPE (1-10)", { type: "number" }, "8"));
+});
+
+test("validateValue: rejects a non-numeric number value", () => {
+  assert.throws(() => validateValue("Volume", { type: "number" }, "lots"), /expects a number/);
+});
+
+// ─── dashboard rendering (pure, no live Notion) ──────────────────────────────────
+
+test("startOfWeekUTC: returns the Monday of the week (UTC)", () => {
+  // 2026-06-30 is a Tuesday → Monday is 2026-06-29.
+  assert.equal(startOfWeekUTC(new Date("2026-06-30T12:00:00Z")).toISOString().slice(0, 10), "2026-06-29");
+  // A Sunday maps back to the previous Monday.
+  assert.equal(startOfWeekUTC(new Date("2026-07-05T00:00:00Z")).toISOString().slice(0, 10), "2026-06-29");
+});
+
+test("renderThisWeekTile: counts sessions and shows the last one", () => {
+  const md = renderThisWeekTile([
+    { date: "2026-06-30", name: "Push A", focus: "Chest" },
+    { date: "2026-06-29", name: "Legs", focus: "Legs" },
+  ]);
+  assert.match(md, /\*\*This Week\*\*/);
+  assert.match(md, /2 sessions logged this week/);
+  assert.match(md, /Last: 2026-06-30 Push A \(Chest\)/);
+});
+
+test("renderThisWeekTile: empty state", () => {
+  assert.match(renderThisWeekTile([]), /No sessions logged yet this week/);
+});
+
+test("renderGoalsTile: shows active goals with progress, hides achieved", () => {
+  const md = renderGoalsTile([
+    { goal: "Squat 100kg", status: "On track", current: 90, target: 100 },
+    { goal: "Old goal", status: "Achieved", current: 1, target: 1 },
+  ]);
+  assert.match(md, /- Squat 100kg: 90 \/ 100/);
+  assert.doesNotMatch(md, /Old goal/);
+});
+
+test("renderBodyStatsTile: shows latest weight and waist, or empty state", () => {
+  assert.match(
+    renderBodyStatsTile({ date: "2026-06-20", bodyweight: 80, waist: 82 }),
+    /2026-06-20: 80kg, waist 82cm/,
+  );
+  assert.match(renderBodyStatsTile(null), /No check-ins logged yet/);
 });

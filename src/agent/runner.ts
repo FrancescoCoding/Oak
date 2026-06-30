@@ -1,8 +1,10 @@
 import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { config } from "../config.js";
 import { getSession, setSession, clearSession } from "./sessions.js";
+import { notionConfigured } from "../notion/status.js";
 import { type Attachment, buildUserContent } from "../media/attachments.js";
 import { pickPersonality, personaSystemPrompt } from "./personalities.js";
 
@@ -67,6 +69,62 @@ export interface AgentResponse {
   sessionId?: string;
 }
 
+// Whole-query retry for transient startup failures.
+const MAX_QUERY_ATTEMPTS = 3;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** The Claude subscription cap (reset on a rolling window), not a transient limit. */
+function isUsageLimit(msg: string): boolean {
+  const l = msg.toLowerCase();
+  return (
+    l.includes("usage limit") ||
+    l.includes("usage_limit") ||
+    l.includes("credit balance is too low") ||
+    l.includes("insufficient credit") ||
+    l.includes("quota exceeded")
+  );
+}
+
+/** Transient network/overload errors worth a quick retry. */
+function isTransient(msg: string): boolean {
+  const l = msg.toLowerCase();
+  return /etimedout|econnreset|econnrefused|enotfound|eai_again|socket hang up|network|fetch failed|overloaded|\b50[234]\b|service unavailable|timed out|timeout/.test(
+    l,
+  );
+}
+
+/**
+ * A short, code-computed context line prepended to every prompt so the facts the
+ * onboarding routine depends on are present deterministically on every turn
+ * (including resumed sessions, where the model would otherwise skip onboarding).
+ * Reports Notion/workspace status and whether PERSONAL.md is filled in.
+ */
+function buildSessionContext(): string {
+  const parts: string[] = [];
+  if (notionConfigured()) {
+    parts.push("Notion configured");
+    const idsPath = path.join(PROJECT_ROOT, "data", "notion-ids.json");
+    parts.push(fs.existsSync(idsPath) ? "workspace built" : "workspace not built yet (run setup-notion)");
+  } else {
+    parts.push("Notion not configured (no persistence)");
+  }
+
+  const personalPath = path.join(PROJECT_ROOT, "PERSONAL.md");
+  if (!fs.existsSync(personalPath)) {
+    parts.push("PERSONAL.md missing (ask for goals and how they eat, then create it)");
+  } else {
+    let looksTemplate = false;
+    try {
+      // The example's first goal; if it survives, the file was not personalised.
+      looksTemplate = fs.readFileSync(personalPath, "utf-8").includes("e.g. Add 10kg to my squat by September");
+    } catch {
+      /* unreadable: treat as set, the agent can still ask */
+    }
+    parts.push(looksTemplate ? "PERSONAL.md still has placeholder goals (ask the user to fill them)" : "PERSONAL.md set");
+  }
+  return parts.join("; ");
+}
+
 /**
  * Run the Claude agent for one incoming message.
  *
@@ -93,92 +151,101 @@ export async function runAgent(opts: {
   const model = modelTier === "standard" ? config.model : config.modelFast;
 
   const now = new Date().toLocaleString("en-GB", { timeZone: config.timezone });
-  const prompt = `[Telegram chat ${chatId}${userLabel ? ` | ${userLabel}` : ""} | local time: ${now} (${config.timezone})]\n${userMessage}`;
+  const context = buildSessionContext();
+  const prompt = `[Telegram chat ${chatId}${userLabel ? ` | ${userLabel}` : ""} | local time: ${now} (${config.timezone})]\n[context: ${context}]\n${userMessage}`;
 
   const persona = pickPersonality(chatId);
   const personaAppend = personaSystemPrompt(persona);
 
-  let resultText = "";
-  let sessionId: string | undefined;
-
   console.log(`[agent] Starting query (${model}, ${modelTier}, persona=${persona.id}):`, userMessage.slice(0, 100));
 
-  try {
-    for await (const message of query({
-      prompt: singleMessage(prompt, attachments),
-      options: {
-        cwd: PROJECT_ROOT,
-        model,
-        effort: config.reasoningEffort,
-        title: `tg-${chatId}`,
-        systemPrompt: {
-          type: "preset",
-          preset: "claude_code",
-          excludeDynamicSections: true,
-          ...(personaAppend ? { append: personaAppend } : {}),
+  for (let attempt = 0; ; attempt++) {
+    let resultText = "";
+    let sessionId: string | undefined;
+    try {
+      for await (const message of query({
+        prompt: singleMessage(prompt, attachments),
+        options: {
+          cwd: PROJECT_ROOT,
+          model,
+          effort: config.reasoningEffort,
+          title: `tg-${chatId}`,
+          systemPrompt: {
+            type: "preset",
+            preset: "claude_code",
+            excludeDynamicSections: true,
+            ...(personaAppend ? { append: personaAppend } : {}),
+          },
+          resume: existingSession,
+          // Load the project CLAUDE.md (the coach persona) and surface every skill
+          // discovered from the loaded plugin. skills: "all" is the SDK's single
+          // place to turn skills on; without it, plugin SKILL.md discovery is left
+          // to ambiguous defaults and the coach may never see its skills.
+          settingSources: ["project"],
+          skills: "all",
+          allowedTools: [
+            "Bash", "Read", "Write", "Edit", "Glob", "Grep",
+            "WebFetch", "WebSearch", "Skill",
+          ],
+          permissionMode: "bypassPermissions",
+          allowDangerouslySkipPermissions: true,
+          maxTurns: modelTier === "fast" ? 15 : 60,
+          plugins: [{ type: "local", path: path.join(PROJECT_ROOT, "coach-plugin") }],
+          forwardSubagentText: onProgress != null,
         },
-        resume: existingSession,
-        // Load the project CLAUDE.md (the coach persona) and surface every skill
-        // discovered from the loaded plugin. skills: "all" is the SDK's single
-        // place to turn skills on; without it, plugin SKILL.md discovery is left
-        // to ambiguous defaults and the coach may never see its skills.
-        settingSources: ["project"],
-        skills: "all",
-        allowedTools: [
-          "Bash", "Read", "Write", "Edit", "Glob", "Grep",
-          "WebFetch", "WebSearch", "Skill",
-        ],
-        permissionMode: "bypassPermissions",
-        allowDangerouslySkipPermissions: true,
-        maxTurns: modelTier === "fast" ? 15 : 60,
-        plugins: [{ type: "local", path: path.join(PROJECT_ROOT, "coach-plugin") }],
-        forwardSubagentText: onProgress != null,
-      },
-    })) {
-      if (message.type === "system" && message.subtype === "init") {
-        sessionId = (message as any).session_id;
-        if (sessionId) setSession(chatId, sessionId);
+      })) {
+        if (message.type === "system" && message.subtype === "init") {
+          sessionId = (message as any).session_id;
+          if (sessionId) setSession(chatId, sessionId);
+        }
+
+        if (
+          onProgress &&
+          message.type === "assistant" &&
+          (message as any).parent_tool_use_id != null
+        ) {
+          const blocks = (message as any).message?.content ?? [];
+          const text = blocks
+            .filter((b: any) => b?.type === "text" && typeof b.text === "string")
+            .map((b: any) => b.text as string)
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim();
+          if (text) onProgress(text);
+        }
+
+        if ("result" in message) {
+          resultText = (message as any).result ?? "";
+        }
       }
 
-      if (
-        onProgress &&
-        message.type === "assistant" &&
-        (message as any).parent_tool_use_id != null
-      ) {
-        const blocks = (message as any).message?.content ?? [];
-        const text = blocks
-          .filter((b: any) => b?.type === "text" && typeof b.text === "string")
-          .map((b: any) => b.text as string)
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
-        if (text) onProgress(text);
+      return { text: resultText, sessionId };
+    } catch (err: any) {
+      const msg = err?.message ?? String(err);
+      console.error("[agent] query() threw:", msg);
+
+      // Subscription usage limit hit. Return a clear message rather than throwing.
+      // No restart needed: the next query() spawns a fresh subprocess, so once the
+      // limit window resets the very next request will work.
+      if (isUsageLimit(msg)) {
+        clearSession(chatId);
+        return {
+          text: "I have hit the Claude subscription usage limit. Limits reset on a rolling window, so try again shortly. No restart needed.",
+          sessionId: undefined,
+        };
       }
 
-      if ("result" in message) {
-        resultText = (message as any).result ?? "";
+      // Transient failure before the agent started (no session id yet, so no tool
+      // side effects have run): safe to retry with backoff. Once a session is
+      // established we do not blind-retry, to avoid duplicate Notion writes.
+      if (isTransient(msg) && sessionId === undefined && attempt < MAX_QUERY_ATTEMPTS - 1) {
+        const waitMs = Math.min(2 ** attempt, 8) * 1000;
+        console.warn(`[agent] transient error; retry ${attempt + 1}/${MAX_QUERY_ATTEMPTS - 1} in ${waitMs}ms`);
+        await sleep(waitMs);
+        continue;
       }
+
+      throw err;
     }
-  } catch (err: any) {
-    const msg = err?.message ?? String(err);
-    console.error("[agent] query() threw:", msg);
-
-    // Subscription usage limit hit. Return a clear message rather than throwing.
-    // No restart needed: the next query() spawns a fresh subprocess, so once the
-    // limit window resets the very next request will work.
-    if (
-      msg.toLowerCase().includes("usage limit") ||
-      msg.toLowerCase().includes("credit balance is too low")
-    ) {
-      clearSession(chatId);
-      return {
-        text: "I have hit the Claude subscription usage limit. Limits reset on a rolling window, so try again shortly. No restart needed.",
-        sessionId: undefined,
-      };
-    }
-
-    throw err;
   }
-
-  return { text: resultText, sessionId };
 }
