@@ -88,7 +88,11 @@ function readCache() {
 }
 function writeCache(c) {
   fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
-  fs.writeFileSync(CACHE_FILE, JSON.stringify(c, null, 2));
+  // Atomic write (temp + rename): a crash mid-write must not leave a truncated
+  // cache that readCache swallows as {}, which would re-create duplicate databases.
+  const tmp = `${CACHE_FILE}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(c, null, 2));
+  fs.renameSync(tmp, CACHE_FILE);
 }
 const cache = readCache();
 

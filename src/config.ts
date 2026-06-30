@@ -36,9 +36,14 @@ export const config = {
   // "normal" for the plain coach, or "random" for a stable random character.
   ownerPersona: process.env.OWNER_PERSONA ?? "arnold",
 
-  // Models. Sonnet for real coaching, the fast model for trivial logging.
+  // Models. The main model for real coaching, the fast model for trivial logging.
   model: process.env.CLAUDE_MODEL ?? "claude-sonnet-4-6",
   modelFast: process.env.CLAUDE_MODEL_FAST ?? "claude-haiku-4-5",
+
+  // Route short, clearly-transactional logging messages to the cheaper fast model.
+  // Off by default so behaviour is consistent out of the box (every message uses
+  // CLAUDE_MODEL); opt in to save subscription usage on trivial logs.
+  fastTierEnabled: (process.env.FAST_TIER_ENABLED ?? "false") === "true",
 
   // Reasoning effort for the standard model: low | medium | high | xhigh | max.
   // Lower means faster, cheaper replies with less deep thinking.
@@ -82,9 +87,10 @@ function requireEnv(name: string): string {
 }
 
 /**
- * Validate Claude auth at startup. Fails fast with a clear message if the
- * subscription token is missing (otherwise the agent only fails later with a
- * 401), which is exactly the misconfiguration that is easy to miss.
+ * Validate configuration at startup, failing fast with a clear message rather than
+ * letting a misconfiguration surface later as a 401 or a silently insecure deploy.
+ * Covers Claude auth and, in webhook mode, the settings without which the service
+ * either cannot register its webhook or would expose an unauthenticated /cron/run.
  */
 export function checkClaudeAuth(): void {
   if (!config.claudeOauthToken) {
@@ -94,4 +100,19 @@ export function checkClaudeAuth(): void {
     );
   }
   console.log("[config] Claude auth: subscription token");
+
+  if (config.mode === "webhook") {
+    if (!config.publicBaseUrl) {
+      throw new Error(
+        "MODE=webhook requires PUBLIC_BASE_URL (the service's public HTTPS URL) so the " +
+          "Telegram webhook can be registered.",
+      );
+    }
+    if (!config.cronSecret) {
+      throw new Error(
+        "MODE=webhook requires CRON_SECRET so the /cron/run reminder endpoint is " +
+          "authenticated. Set a strong random value and share it with your scheduler.",
+      );
+    }
+  }
 }

@@ -99,11 +99,15 @@ async function handle(opts: {
   // Keep a typing indicator alive while the agent works (it lasts ~5s per call).
   const typingTimer = setInterval(() => typing().catch(() => {}), 4500);
 
-  // Route trivial logging messages to the fast model on new chats only. Existing
-  // sessions stay on the standard model to avoid switching models mid-conversation.
-  // A message carrying an attachment is never trivial, so it stays on standard.
+  // Route trivial logging messages to the fast model on new chats only, and only
+  // when the fast tier is enabled (off by default for consistent behaviour).
+  // Existing sessions stay on the standard model to avoid switching mid-conversation,
+  // and a message carrying an attachment is never trivial, so it stays on standard.
   const existingSession = getSession(chatId);
-  const modelTier = existingSession || attachments.length > 0 ? "standard" : classifyQuery(text);
+  const modelTier =
+    config.fastTierEnabled && !existingSession && attachments.length === 0
+      ? classifyQuery(text)
+      : "standard";
 
   try {
     const response = await runAgent({

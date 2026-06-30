@@ -31,6 +31,9 @@
  *        --set "RPE=8" --set "Exercises=Bench 5x5 @60kg; OHP 3x8 @40kg"
  *   node scripts/notion.mjs append --page <pageId> --md "# Heading\n> [!note] callout\n---\n- a\n- b"
  *   node scripts/notion.mjs append --page <pageId> --file plan.md
+ *   node scripts/notion.mjs sync-dashboard --now 2026-06-30
+ *
+ * Add --dry-run to `log` to validate and print the parsed row without writing it.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -105,7 +108,13 @@ function readCache() {
 }
 function writeCache(cache) {
   fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
-  fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
+  // Atomic write: a crash mid-write must not truncate the cache to invalid JSON
+  // (which readCache would silently swallow as {}, losing every resolved id and
+  // causing duplicate databases on the next setup). Write to a temp file and
+  // rename, which is atomic on the same filesystem.
+  const tmp = `${CACHE_FILE}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(cache, null, 2));
+  fs.renameSync(tmp, CACHE_FILE);
 }
 
 /** Accept a raw id or a database name; resolve names via cache then search. */
@@ -170,6 +179,43 @@ function buildPropertyValue(type, raw) {
   }
 }
 
+/** The allowed option names for a select/multi_select/status property, else null. */
+function optionNames(def) {
+  if (def.type === "select") return (def.select?.options ?? []).map((o) => o.name);
+  if (def.type === "status") return (def.status?.options ?? []).map((o) => o.name);
+  if (def.type === "multi_select") return (def.multi_select?.options ?? []).map((o) => o.name);
+  return null;
+}
+
+/**
+ * Validate a --set value against the live schema before it is written, so a
+ * miscategorised or out-of-range value fails locally with the valid options
+ * (the same self-correcting pattern as the unknown-property check) instead of
+ * silently creating a stray select option or logging an impossible number.
+ * Pure (no I/O) so it is unit-testable; throws on the first problem.
+ */
+function validateValue(name, def, value) {
+  const allowed = optionNames(def);
+  if (allowed) {
+    const given = def.type === "multi_select" ? value.split(",").map((v) => v.trim()) : [value];
+    for (const v of given) {
+      if (v && !allowed.includes(v)) {
+        throw new Error(`"${v}" is not a valid option for "${name}". Allowed: ${allowed.join(", ")}`);
+      }
+    }
+  }
+  if (def.type === "number") {
+    const n = Number(value);
+    if (value !== "" && Number.isNaN(n)) {
+      throw new Error(`Property "${name}" expects a number, got "${value}".`);
+    }
+    // RPE is a fixed 1-10 scale; reject impossible values rather than logging them.
+    if (/\brpe\b/i.test(name) && (n < 1 || n > 10)) {
+      throw new Error(`"${name}" must be between 1 and 10, got ${value}.`);
+    }
+  }
+}
+
 async function buildProperties(dbId, sets) {
   const db = await notion(`/databases/${dbId}`);
   const schema = db.properties ?? {};
@@ -181,6 +227,7 @@ async function buildProperties(dbId, sets) {
     const value = pair.slice(idx + 1);
     const def = schema[name];
     if (!def) throw new Error(`Property "${name}" not found in database. Have: ${Object.keys(schema).join(", ")}`);
+    validateValue(name, def, value);
     props[name] = buildPropertyValue(def.type, value);
   }
   return props;
@@ -375,6 +422,98 @@ function markdownToBlocks(md) {
   return blocks;
 }
 
+// ─── reading rows + dashboard rendering ──────────────────────────────────────
+
+/** Read a Notion property value object into a plain string/number. */
+function readProp(v) {
+  if (!v) return "";
+  if (v.type === "title") return (v.title ?? []).map((t) => t.plain_text).join("");
+  if (v.type === "rich_text") return (v.rich_text ?? []).map((t) => t.plain_text).join("");
+  if (v.type === "select") return v.select?.name ?? "";
+  if (v.type === "status") return v.status?.name ?? "";
+  if (v.type === "multi_select") return (v.multi_select ?? []).map((s) => s.name).join(", ");
+  if (v.type === "number") return v.number ?? "";
+  if (v.type === "date") return v.date?.start ?? "";
+  return "";
+}
+
+/** Find a property name by a predicate over (lowercased name, definition). */
+function findProp(schema, pred) {
+  return Object.keys(schema).find((k) => pred(k.toLowerCase(), schema[k]));
+}
+
+const isoDate = (d) => d.toISOString().slice(0, 10);
+
+/** Monday 00:00 UTC of the week containing d. UTC-based so it is deterministic
+ *  regardless of server timezone (the caller can pass --now from the chat header). */
+function startOfWeekUTC(d) {
+  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const mondayOffset = (x.getUTCDay() + 6) % 7; // Sun=0 -> 6, Mon=1 -> 0
+  x.setUTCDate(x.getUTCDate() - mondayOffset);
+  return x;
+}
+
+// Pure tile renderers: take plain extracted rows and return tile markdown. The
+// numbers come straight from Notion queries (never the model), which is what
+// keeps the Dashboard honest. Exported for unit tests.
+function renderThisWeekTile(sessions) {
+  const lines = ["> [📅] **This Week**"];
+  if (!sessions.length) {
+    lines.push("- No sessions logged yet this week.");
+  } else {
+    lines.push(`- ${sessions.length} session${sessions.length === 1 ? "" : "s"} logged this week`);
+    const last = sessions[0];
+    const focus = last.focus ? ` (${last.focus})` : "";
+    lines.push(`- Last: ${[last.date, last.name].filter(Boolean).join(" ")}${focus}`);
+  }
+  return lines.join("\n");
+}
+
+function renderGoalsTile(goals) {
+  const lines = ["> [🎯] **Goals**"];
+  const active = goals.filter((g) => g.status !== "Achieved" && g.status !== "Paused");
+  const show = (active.length ? active : goals).slice(0, 5);
+  if (!show.length) {
+    lines.push("- No goals set yet.");
+  } else {
+    for (const g of show) {
+      const hasNums = g.current !== "" && g.current != null && g.target !== "" && g.target != null;
+      lines.push(`- ${g.goal}${hasNums ? `: ${g.current} / ${g.target}` : ""}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function renderBodyStatsTile(latest) {
+  const lines = ["> [⚖️] **Body Stats**"];
+  if (!latest) {
+    lines.push("- No check-ins logged yet.");
+  } else {
+    const parts = [];
+    if (latest.bodyweight !== "" && latest.bodyweight != null) parts.push(`${latest.bodyweight}kg`);
+    if (latest.waist !== "" && latest.waist != null) parts.push(`waist ${latest.waist}cm`);
+    lines.push(`- ${[latest.date, parts.join(", ")].filter(Boolean).join(": ")}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Replace a column's children with fresh content, append-then-delete: write the
+ * new blocks first, then delete the previously-existing ones. A failure mid-append
+ * leaves the old tile intact (brief duplication) rather than wiping it to empty.
+ * Returns the number of blocks written.
+ */
+async function replaceTileContent(columnId, md) {
+  const existing = await notion(`/blocks/${columnId}/children`);
+  const oldIds = (existing.results ?? []).map((b) => b.id);
+  const blocks = markdownToBlocks(md);
+  for (let i = 0; i < blocks.length; i += 100) {
+    await notion(`/blocks/${columnId}/children`, "PATCH", { children: blocks.slice(i, i + 100) });
+  }
+  for (const id of oldIds) await notion(`/blocks/${id}`, "DELETE");
+  return blocks.length;
+}
+
 // ─── commands ────────────────────────────────────────────────────────────────
 async function cmdResolveDb(args) {
   const id = await resolveDbId(args.name ?? args.db);
@@ -406,23 +545,8 @@ async function cmdQueryRecent(args) {
   const rpeProp = byName("rpe");
   const exProp = byName("exercise");
 
-  const get = (name) => {
-    const v = name ? p[name] : null;
-    return readValue(v);
-    function readValue(v) {
-      if (!v) return "";
-      if (v.type === "title") return v.title.map((t) => t.plain_text).join("");
-      if (v.type === "rich_text") return v.rich_text.map((t) => t.plain_text).join("");
-      if (v.type === "select") return v.select?.name ?? "";
-      if (v.type === "status") return v.status?.name ?? "";
-      if (v.type === "multi_select") return v.multi_select.map((s) => s.name).join(", ");
-      if (v.type === "number") return v.number ?? "";
-      if (v.type === "date") return v.date?.start ?? "";
-      return "";
-    }
-  };
-
   let p;
+  const get = (name) => readProp(name ? p[name] : null);
   for (const page of res.results) {
     p = page.properties ?? {};
     const parts = [get(dateProp), get(titleProp)];
@@ -436,6 +560,13 @@ async function cmdQueryRecent(args) {
 async function cmdLog(args) {
   const dbId = await resolveDbId(args.db);
   const properties = await buildProperties(dbId, args.set);
+  // --dry-run validates and prints the parsed row without writing, so the coach
+  // can read it back before committing (supports the "confirm before logging" flow).
+  if (args["dry-run"]) {
+    console.log("Dry run, nothing written. Parsed properties:");
+    console.log(JSON.stringify(properties, null, 2));
+    return;
+  }
   const page = await notion("/pages", "POST", { parent: { database_id: dbId }, properties });
   console.log(`Logged row ${page.id}`);
 }
@@ -473,13 +604,86 @@ async function cmdRefreshTile(args) {
   const md = args.file ? fs.readFileSync(args.file, "utf8") : (args.md ?? "");
   if (!md.trim()) throw new Error("Nothing to write: pass --md or --file");
 
-  const existing = await notion(`/blocks/${columnId}/children`);
-  for (const b of existing.results ?? []) await notion(`/blocks/${b.id}`, "DELETE");
-  const blocks = markdownToBlocks(md);
-  for (let i = 0; i < blocks.length; i += 100) {
-    await notion(`/blocks/${columnId}/children`, "PATCH", { children: blocks.slice(i, i + 100) });
+  const written = await replaceTileContent(columnId, md);
+  console.log(`Refreshed tile ${args.tile ?? columnId} with ${written} block(s)`);
+}
+
+/**
+ * Rebuild the three Row 1 Dashboard tiles (This Week, Goals, Body Stats) directly
+ * from the databases, so they are always consistent with the data and never carry
+ * hand-written (fabricated) numbers. The agent calls this once after any data
+ * change instead of hand-building each tile. --now <YYYY-MM-DD> sets "this week"
+ * from the chat header date (defaults to the system date).
+ */
+async function cmdSyncDashboard(args) {
+  const cols = readCache().__dashboard?.columns ?? {};
+  if (!cols.thisWeek && !cols.goals && !cols.bodyStats) {
+    throw new Error("No Dashboard columns cached. Run setup-workspace.mjs first.");
   }
-  console.log(`Refreshed tile ${args.tile ?? columnId} with ${blocks.length} block(s)`);
+  const now = args.now ? new Date(args.now) : new Date();
+  if (Number.isNaN(now.getTime())) throw new Error(`--now must be an ISO date, got "${args.now}"`);
+
+  // This Week: sessions logged since Monday of the current week.
+  if (cols.thisWeek) {
+    const wlId = await resolveDbId("Workout Log");
+    const schema = (await notion(`/databases/${wlId}`)).properties ?? {};
+    const dateProp = findProp(schema, (_n, d) => d.type === "date");
+    const titleProp = findProp(schema, (_n, d) => d.type === "title");
+    const focusProp = findProp(schema, (n) => n.includes("focus"));
+    const body = { page_size: 100 };
+    if (dateProp) {
+      body.filter = { property: dateProp, date: { on_or_after: isoDate(startOfWeekUTC(now)) } };
+      body.sorts = [{ property: dateProp, direction: "descending" }];
+    }
+    const res = await notion(`/databases/${wlId}/query`, "POST", body);
+    const sessions = (res.results ?? []).map((pg) => ({
+      date: readProp(pg.properties?.[dateProp]),
+      name: readProp(pg.properties?.[titleProp]),
+      focus: focusProp ? readProp(pg.properties?.[focusProp]) : "",
+    }));
+    await replaceTileContent(cols.thisWeek, renderThisWeekTile(sessions));
+  }
+
+  // Goals: active goals with current/target progress.
+  if (cols.goals) {
+    const gId = await resolveDbId("Goals");
+    const schema = (await notion(`/databases/${gId}`)).properties ?? {};
+    const titleProp = findProp(schema, (_n, d) => d.type === "title");
+    const statusProp = findProp(schema, (n) => n.includes("status"));
+    const curProp = findProp(schema, (n, d) => n.includes("current") && d.type === "number");
+    const tgtProp = findProp(schema, (n, d) => n.includes("target") && d.type === "number");
+    const res = await notion(`/databases/${gId}/query`, "POST", { page_size: 100 });
+    const goals = (res.results ?? []).map((pg) => ({
+      goal: readProp(pg.properties?.[titleProp]),
+      status: statusProp ? readProp(pg.properties?.[statusProp]) : "",
+      current: curProp ? readProp(pg.properties?.[curProp]) : "",
+      target: tgtProp ? readProp(pg.properties?.[tgtProp]) : "",
+    }));
+    await replaceTileContent(cols.goals, renderGoalsTile(goals));
+  }
+
+  // Body Stats: the latest check-in.
+  if (cols.bodyStats) {
+    const bId = await resolveDbId("Body Stats");
+    const schema = (await notion(`/databases/${bId}`)).properties ?? {};
+    const dateProp = findProp(schema, (_n, d) => d.type === "date");
+    const bwProp = findProp(schema, (n) => n.includes("bodyweight"));
+    const waistProp = findProp(schema, (n) => n.includes("waist"));
+    const body = { page_size: 1 };
+    if (dateProp) body.sorts = [{ property: dateProp, direction: "descending" }];
+    const res = await notion(`/databases/${bId}/query`, "POST", body);
+    const row = res.results?.[0];
+    const latest = row
+      ? {
+          date: readProp(row.properties?.[dateProp]),
+          bodyweight: bwProp ? readProp(row.properties?.[bwProp]) : "",
+          waist: waistProp ? readProp(row.properties?.[waistProp]) : "",
+        }
+      : null;
+    await replaceTileContent(cols.bodyStats, renderBodyStatsTile(latest));
+  }
+
+  console.log("Synced Dashboard tiles (This Week, Goals, Body Stats) from Notion.");
 }
 
 /**
@@ -513,6 +717,7 @@ const COMMANDS = {
   log: cmdLog,
   append: cmdAppend,
   "refresh-tile": cmdRefreshTile,
+  "sync-dashboard": cmdSyncDashboard,
   "create-page": cmdCreatePage,
 };
 
@@ -541,4 +746,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { parseInline, markdownToBlocks, buildPropertyValue };
+export {
+  parseInline,
+  markdownToBlocks,
+  buildPropertyValue,
+  validateValue,
+  optionNames,
+  readProp,
+  startOfWeekUTC,
+  renderThisWeekTile,
+  renderGoalsTile,
+  renderBodyStatsTile,
+};
