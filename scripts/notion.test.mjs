@@ -1,15 +1,15 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import {
-  parseInline,
-  markdownToBlocks,
   buildPropertyValue,
-  validateValue,
+  markdownToBlocks,
   optionNames,
-  startOfWeekUTC,
-  renderThisWeekTile,
-  renderGoalsTile,
+  parseInline,
   renderBodyStatsTile,
+  renderGoalsTile,
+  renderThisWeekTile,
+  startOfWeekUTC,
+  validateValue,
 } from "./notion.mjs";
 
 // ─── inline rich text ─────────────────────────────────────────────────────────
@@ -27,7 +27,10 @@ test("parseInline: empty string yields no nodes", () => {
 
 test("parseInline: **bold** becomes a bold annotation without asterisks", () => {
   const rt = parseInline("lift **heavy** today");
-  assert.deepEqual(rt.map((n) => n.text.content), ["lift ", "heavy", " today"]);
+  assert.deepEqual(
+    rt.map((n) => n.text.content),
+    ["lift ", "heavy", " today"],
+  );
   assert.equal(rt[1].annotations.bold, true);
   // No literal asterisks leak into any node.
   assert.ok(rt.every((n) => !n.text.content.includes("*")));
@@ -53,7 +56,10 @@ test("parseInline: [label](url) becomes a link", () => {
 
 test("parseInline: multiple spans on one line keep their order", () => {
   const rt = parseInline("**a** and _b_ and `c`");
-  assert.deepEqual(rt.map((n) => n.text.content), ["a", " and ", "b", " and ", "c"]);
+  assert.deepEqual(
+    rt.map((n) => n.text.content),
+    ["a", " and ", "b", " and ", "c"],
+  );
   assert.equal(rt[0].annotations.bold, true);
   assert.equal(rt[2].annotations.italic, true);
   assert.equal(rt[4].annotations.code, true);
@@ -63,7 +69,10 @@ test("parseInline: multiple spans on one line keep their order", () => {
 
 test("markdownToBlocks: headings map to heading_1..3", () => {
   const blocks = markdownToBlocks("# H1\n## H2\n### H3");
-  assert.deepEqual(blocks.map((b) => b.type), ["heading_1", "heading_2", "heading_3"]);
+  assert.deepEqual(
+    blocks.map((b) => b.type),
+    ["heading_1", "heading_2", "heading_3"],
+  );
   assert.equal(blocks[0].heading_1.rich_text[0].text.content, "H1");
 });
 
@@ -77,7 +86,10 @@ test("markdownToBlocks: bullets carry inline formatting", () => {
 
 test("markdownToBlocks: numbered lists are detected", () => {
   const blocks = markdownToBlocks("1. first\n2. second");
-  assert.deepEqual(blocks.map((b) => b.type), ["numbered_list_item", "numbered_list_item"]);
+  assert.deepEqual(
+    blocks.map((b) => b.type),
+    ["numbered_list_item", "numbered_list_item"],
+  );
 });
 
 test("markdownToBlocks: divider", () => {
@@ -161,7 +173,10 @@ test("validateValue: accepts a valid select option", () => {
 });
 
 test("validateValue: rejects an unknown member of a multi_select", () => {
-  assert.throws(() => validateValue("Focus", multiDef, "Chest, Push"), /"Push" is not a valid option/);
+  assert.throws(
+    () => validateValue("Focus", multiDef, "Chest, Push"),
+    /"Push" is not a valid option/,
+  );
 });
 
 test("validateValue: rejects out-of-range RPE", () => {
@@ -177,9 +192,15 @@ test("validateValue: rejects a non-numeric number value", () => {
 
 test("startOfWeekUTC: returns the Monday of the week (UTC)", () => {
   // 2026-06-30 is a Tuesday → Monday is 2026-06-29.
-  assert.equal(startOfWeekUTC(new Date("2026-06-30T12:00:00Z")).toISOString().slice(0, 10), "2026-06-29");
+  assert.equal(
+    startOfWeekUTC(new Date("2026-06-30T12:00:00Z")).toISOString().slice(0, 10),
+    "2026-06-29",
+  );
   // A Sunday maps back to the previous Monday.
-  assert.equal(startOfWeekUTC(new Date("2026-07-05T00:00:00Z")).toISOString().slice(0, 10), "2026-06-29");
+  assert.equal(
+    startOfWeekUTC(new Date("2026-07-05T00:00:00Z")).toISOString().slice(0, 10),
+    "2026-06-29",
+  );
 });
 
 test("renderThisWeekTile: counts sessions and shows the last one", () => {

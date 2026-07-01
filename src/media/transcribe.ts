@@ -39,10 +39,17 @@ export async function transcribeAudio(input: Buffer): Promise<string> {
 function transcodeToWav(input: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     if (!ffmpegPath) return reject(new Error("ffmpeg binary not found (ffmpeg-static)"));
-    const out = path.join(os.tmpdir(), `oak-voice-${Date.now()}-${Math.random().toString(36).slice(2)}.wav`);
-    const proc = spawn(ffmpegPath, ["-i", "pipe:0", "-ac", "1", "-ar", "16000", "-f", "wav", "-y", out], {
-      stdio: ["pipe", "ignore", "pipe"],
-    });
+    const out = path.join(
+      os.tmpdir(),
+      `oak-voice-${Date.now()}-${Math.random().toString(36).slice(2)}.wav`,
+    );
+    const proc = spawn(
+      ffmpegPath,
+      ["-i", "pipe:0", "-ac", "1", "-ar", "16000", "-f", "wav", "-y", out],
+      {
+        stdio: ["pipe", "ignore", "pipe"],
+      },
+    );
     let stderr = "";
     proc.stderr.on("data", (c: Buffer) => (stderr += c.toString()));
     proc.on("error", reject);

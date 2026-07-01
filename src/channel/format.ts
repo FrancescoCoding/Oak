@@ -36,9 +36,8 @@ export function toTelegramHtml(input: string): string {
   // 1. Pull code out first so its contents are never touched by the inline
   //    transforms below (a `**` inside a code span must stay literal). Fenced
   //    blocks before inline spans.
-  let text = input.replace(
-    /```[ \t]*[\w+-]*\n?([\s\S]*?)```/g,
-    (_m, body: string) => stash(`<pre>${escapeHtml(body.replace(/\n$/, ""))}</pre>`),
+  let text = input.replace(/```[ \t]*[\w+-]*\n?([\s\S]*?)```/g, (_m, body: string) =>
+    stash(`<pre>${escapeHtml(body.replace(/\n$/, ""))}</pre>`),
   );
   text = text.replace(/`([^`\n]+)`/g, (_m, body: string) =>
     stash(`<code>${escapeHtml(body)}</code>`),
@@ -57,7 +56,10 @@ export function toTelegramHtml(input: string): string {
     .map((line) => {
       const heading = line.match(/^\s{0,3}#{1,6}\s+(.*)$/);
       if (heading) {
-        const inner = (heading[1] ?? "").replace(/\*\*/g, "").replace(/\s*#+\s*$/, "").trim();
+        const inner = (heading[1] ?? "")
+          .replace(/\*\*/g, "")
+          .replace(/\s*#+\s*$/, "")
+          .trim();
         return `<b>${inner}</b>`;
       }
       return line.replace(/^(\s*)[-*+]\s+/, "$1• ");
@@ -93,7 +95,11 @@ export function toPlainText(input: string): string {
     .split("\n")
     .map((line) => {
       const heading = line.match(/^\s{0,3}#{1,6}\s+(.*)$/);
-      if (heading) return (heading[1] ?? "").replace(/\*\*/g, "").replace(/\s*#+\s*$/, "").trim();
+      if (heading)
+        return (heading[1] ?? "")
+          .replace(/\*\*/g, "")
+          .replace(/\s*#+\s*$/, "")
+          .trim();
       return line.replace(/^(\s*)[-*+]\s+/, "$1• ");
     })
     .join("\n");

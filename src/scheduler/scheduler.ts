@@ -1,8 +1,8 @@
-import fs from "fs";
+import fs from "node:fs";
 import { Cron } from "croner";
-import { config } from "../config.js";
-import { runAgent, type ModelTier } from "../agent/runner.js";
+import { type ModelTier, runAgent } from "../agent/runner.js";
 import { sendMessage } from "../channel/notify.js";
+import { config } from "../config.js";
 import { writeJsonAtomic } from "../util/atomicfile.js";
 
 /**
@@ -105,7 +105,9 @@ export async function executeTask(task: ScheduledTask): Promise<void> {
     await sendMessage(task.chatId, response.text || "(no output)");
   } catch (err: any) {
     console.error(`[scheduler] Task ${task.name} failed:`, err.message);
-    await sendMessage(task.chatId, `Scheduled task "${task.name}" failed: ${err.message}`).catch(() => {});
+    await sendMessage(task.chatId, `Scheduled task "${task.name}" failed: ${err.message}`).catch(
+      () => {},
+    );
   }
 }
 

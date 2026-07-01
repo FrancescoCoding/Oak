@@ -56,14 +56,15 @@ export const config = {
 
   // Voice-note transcription: "local", "api", or "off". See docs/configuration.md.
   transcribeProvider: (process.env.TRANSCRIBE_PROVIDER ?? "local") as "local" | "api" | "off",
-  transcribeApiUrl: process.env.TRANSCRIBE_API_URL ?? "https://api.openai.com/v1/audio/transcriptions",
+  transcribeApiUrl:
+    process.env.TRANSCRIBE_API_URL ?? "https://api.openai.com/v1/audio/transcriptions",
   transcribeApiKey: process.env.TRANSCRIBE_API_KEY ?? "",
   transcribeModel: process.env.TRANSCRIBE_MODEL ?? "gpt-4o-transcribe",
 
   // Storage
   sessionFile: process.env.SESSION_FILE ?? "./data/sessions.json",
   scheduleFile: process.env.SCHEDULE_FILE ?? "./data/schedule.json",
-  sessionTtlHours: parseInt(process.env.SESSION_TTL_HOURS ?? "12", 10),
+  sessionTtlHours: Number.parseInt(process.env.SESSION_TTL_HOURS ?? "12", 10),
 
   // Transport. "polling" runs an always-on long-polling loop (simplest for local
   // and any always-on host). "webhook" runs an HTTP server that Telegram pushes
@@ -73,7 +74,7 @@ export const config = {
     | "polling"
     | "webhook",
   publicBaseUrl: process.env.PUBLIC_BASE_URL ?? "",
-  port: parseInt(process.env.PORT ?? "8080", 10),
+  port: Number.parseInt(process.env.PORT ?? "8080", 10),
 
   // Shared secret the external scheduler (e.g. Cloud Scheduler) must present to
   // call /cron/run. Required in webhook mode so the reminder endpoint is not open.

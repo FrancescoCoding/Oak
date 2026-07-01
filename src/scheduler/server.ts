@@ -1,5 +1,5 @@
-import http from "http";
-import { addTask, removeTask, listTasks, type ScheduledTask } from "./scheduler.js";
+import http from "node:http";
+import { type ScheduledTask, addTask, listTasks, removeTask } from "./scheduler.js";
 
 /**
  * Localhost-only control plane for reminders. The agent (running as a child process

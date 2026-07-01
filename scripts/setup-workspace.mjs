@@ -55,7 +55,7 @@ if (!HUB) {
 const MAX_RETRIES = 5;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function api(pathname, method = "GET", body) {
+async function api(pathname, method, body) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`${API}/${pathname}`, {
       method,
@@ -69,22 +69,28 @@ async function api(pathname, method = "GET", body) {
 
     if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
       const retryAfter = Number(res.headers.get("retry-after"));
-      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
-        ? retryAfter * 1000
-        : Math.min(2 ** attempt, 8) * 1000;
+      const waitMs =
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : Math.min(2 ** attempt, 8) * 1000;
       await sleep(waitMs);
       continue;
     }
 
     const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(`Notion ${method} ${pathname} -> ${res.status}: ${json.message ?? ""}`);
+    if (!res.ok)
+      throw new Error(`Notion ${method} ${pathname} -> ${res.status}: ${json.message ?? ""}`);
     return json;
   }
 }
 
 // ─── cache ───────────────────────────────────────────────────────────────────
 function readCache() {
-  try { return JSON.parse(fs.readFileSync(CACHE_FILE, "utf8")); } catch { return {}; }
+  try {
+    return JSON.parse(fs.readFileSync(CACHE_FILE, "utf8"));
+  } catch {
+    return {};
+  }
 }
 function writeCache(c) {
   fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
@@ -112,7 +118,10 @@ const box = (t, e, c = "default") => ({
 const q = (t) => ({ type: "quote", quote: { rich_text: RT(t) } });
 // Inline link to a Notion page/database, for the Dashboard's index row.
 const pageUrl = (id) => `https://www.notion.so/${(id ?? "").replace(/-/g, "")}`;
-const link = (label, id) => ({ type: "text", text: { content: label, link: { url: pageUrl(id) } } });
+const link = (label, id) => ({
+  type: "text",
+  text: { content: label, link: { url: pageUrl(id) } },
+});
 const sep = () => ({ type: "text", text: { content: "   ·   " } });
 // Column layout: children go INSIDE column_list, each column needs >=1 block.
 const colList = (...columns) => ({
@@ -184,55 +193,83 @@ async function main() {
   const existing = await hubChildDatabases();
 
   // 1. Programs
-  const programs = await ensureDatabase("Programs", {
-    Program: { title: {} },
-    Type: sel("Powerbuilding", "Strength", "Hypertrophy", "Cardio", "Deload"),
-    Status: sel("Active", "Completed", "Planned", "Paused"),
-    "Start Date": { date: {} },
-    "End Date": { date: {} },
-    Weeks: { number: {} },
-    Notes: { rich_text: {} },
-  }, existing);
+  const programs = await ensureDatabase(
+    "Programs",
+    {
+      Program: { title: {} },
+      Type: sel("Powerbuilding", "Strength", "Hypertrophy", "Cardio", "Deload"),
+      Status: sel("Active", "Completed", "Planned", "Paused"),
+      "Start Date": { date: {} },
+      "End Date": { date: {} },
+      Weeks: { number: {} },
+      Notes: { rich_text: {} },
+    },
+    existing,
+  );
   cache.Programs = programs;
 
   // 2. Goals
-  cache.Goals = await ensureDatabase("Goals", {
-    Goal: { title: {} },
-    Category: sel("Strength", "Body Composition", "Cardio", "Habit"),
-    Metric: { rich_text: {} },
-    "Starting Value": { number: {} },
-    "Current Value": { number: {} },
-    "Target Value": { number: {} },
-    "Target Date": { date: {} },
-    Status: sel("On track", "At risk", "Achieved", "Paused"),
-  }, existing);
+  cache.Goals = await ensureDatabase(
+    "Goals",
+    {
+      Goal: { title: {} },
+      Category: sel("Strength", "Body Composition", "Cardio", "Habit"),
+      Metric: { rich_text: {} },
+      "Starting Value": { number: {} },
+      "Current Value": { number: {} },
+      "Target Value": { number: {} },
+      "Target Date": { date: {} },
+      Status: sel("On track", "At risk", "Achieved", "Paused"),
+    },
+    existing,
+  );
 
   // 3. Body Stats
-  cache["Body Stats"] = await ensureDatabase("Body Stats", {
-    "Check-in": { title: {} },
-    Date: { date: {} },
-    "Bodyweight (kg)": { number: {} },
-    "Waist (cm)": { number: {} },
-    "Chest (cm)": { number: {} },
-    "Arm (cm)": { number: {} },
-    Conditions: sel("Morning fasted", "Evening", "After holiday", "Post-training"),
-    Notes: { rich_text: {} },
-  }, existing);
+  cache["Body Stats"] = await ensureDatabase(
+    "Body Stats",
+    {
+      "Check-in": { title: {} },
+      Date: { date: {} },
+      "Bodyweight (kg)": { number: {} },
+      "Waist (cm)": { number: {} },
+      "Chest (cm)": { number: {} },
+      "Arm (cm)": { number: {} },
+      Conditions: sel("Morning fasted", "Evening", "After holiday", "Post-training"),
+      Notes: { rich_text: {} },
+    },
+    existing,
+  );
 
   // 4. Workout Log (relation to Programs, which must already exist)
-  cache["Workout Log"] = await ensureDatabase("Workout Log", {
-    Session: { title: {} },
-    Date: { date: {} },
-    Week: sel("Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6", "Week 7", "Week 8"),
-    Day: sel("Monday", "Wednesday", "Friday", "Saturday", "Sunday"),
-    Focus: multi("Legs", "Chest", "Back", "Shoulders", "Biceps", "Triceps", "Cardio", "Full Body", "Mobility"),
-    Status: sel("Completed", "Partial", "Skipped"),
-    "Top Set": { number: {} },
-    "Volume (kg)": { number: {} },
-    "Duration (min)": { number: {} },
-    "RPE (1-10)": { number: {} },
-    Program: { relation: { database_id: programs, type: "single_property", single_property: {} } },
-  }, existing);
+  cache["Workout Log"] = await ensureDatabase(
+    "Workout Log",
+    {
+      Session: { title: {} },
+      Date: { date: {} },
+      Week: sel("Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6", "Week 7", "Week 8"),
+      Day: sel("Monday", "Wednesday", "Friday", "Saturday", "Sunday"),
+      Focus: multi(
+        "Legs",
+        "Chest",
+        "Back",
+        "Shoulders",
+        "Biceps",
+        "Triceps",
+        "Cardio",
+        "Full Body",
+        "Mobility",
+      ),
+      Status: sel("Completed", "Partial", "Skipped"),
+      "Top Set": { number: {} },
+      "Volume (kg)": { number: {} },
+      "Duration (min)": { number: {} },
+      "RPE (1-10)": { number: {} },
+      Program: {
+        relation: { database_id: programs, type: "single_property", single_property: {} },
+      },
+    },
+    existing,
+  );
 
   // 5. Initial program row, only if Programs is empty.
   const progRows = await api(`databases/${programs}/query`, "POST", { page_size: 1 });
@@ -288,15 +325,21 @@ async function buildDashboardBody(pageId) {
   // Hero, then a compact one-line index linking to the rest of the workspace.
   const indexLinks = [
     link("Programs", cache.Programs),
-    sep(), link("Goals", cache.Goals),
-    sep(), link("Body Stats", cache["Body Stats"]),
-    sep(), link("Workout Log", cache["Workout Log"]),
+    sep(),
+    link("Goals", cache.Goals),
+    sep(),
+    link("Body Stats", cache["Body Stats"]),
+    sep(),
+    link("Workout Log", cache["Workout Log"]),
   ];
   if (cache.__knowledgeBase) indexLinks.push(sep(), link("Knowledge Base", cache.__knowledgeBase));
 
   await append(pageId, [
     box("Current Program, Week 1, started recently", "🏋️", "blue_background"),
-    { type: "callout", callout: { icon: { type: "emoji", emoji: "🧭" }, color: "default", rich_text: indexLinks } },
+    {
+      type: "callout",
+      callout: { icon: { type: "emoji", emoji: "🧭" }, color: "default", rich_text: indexLinks },
+    },
     div(),
   ]);
   // Row 1: This Week | Goals | Body Stats
@@ -321,7 +364,12 @@ async function buildDashboardBody(pageId) {
   await append(pageId, [
     colList(
       [box("Nutrition", "🍽️", "green_background"), p("Daily targets appear here once set.")],
-      [box("Quick Commands", "⚡", "default"), bul("what should I train today"), bul("log my session"), bul("how am I progressing")],
+      [
+        box("Quick Commands", "⚡", "default"),
+        bul("what should I train today"),
+        bul("log my session"),
+        bul("how am I progressing"),
+      ],
     ),
   ]);
 }
@@ -336,7 +384,11 @@ async function ensureKnowledgeBase() {
     });
     pageId = page.id;
     await append(pageId, [
-      box("Training programs and reference material the coach draws on. Drop files in the repo's knowledge/ folder and ask the coach to import them.", "📚", "gray_background"),
+      box(
+        "Training programs and reference material the coach draws on. Drop files in the repo's knowledge/ folder and ask the coach to import them.",
+        "📚",
+        "gray_background",
+      ),
       div(),
     ]);
     console.log(`+ created Knowledge Base page (${pageId})`);

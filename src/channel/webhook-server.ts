@@ -1,9 +1,9 @@
-import http from "http";
-import crypto from "crypto";
+import crypto from "node:crypto";
+import http from "node:http";
 import type { Bot } from "grammy";
 import { config } from "../config.js";
+import { type ScheduledTask, executeTask, getTask } from "../scheduler/scheduler.js";
 import { TtlSet } from "../util/dedupe.js";
-import { executeTask, getTask, type ScheduledTask } from "../scheduler/scheduler.js";
 
 /**
  * HTTP server for webhook mode. This is what lets the service scale to zero on a
@@ -27,19 +27,30 @@ import { executeTask, getTask, type ScheduledTask } from "../scheduler/scheduler
 // Telegram has no per-webhook signing secret; instead a secret_token set via
 // setWebhook is echoed back on every delivery. Derived from the bot token so
 // there is no extra secret to manage.
-const webhookSecret = crypto
-  .createHash("sha256")
-  .update(config.telegramBotToken)
-  .digest("hex");
+const webhookSecret = crypto.createHash("sha256").update(config.telegramBotToken).digest("hex");
 
 // Telegram redelivers until the webhook returns 200; replays are dropped.
 const seenUpdates = new TtlSet(10 * 60 * 1000);
 
+// Cap the body so a malformed or hostile POST cannot buffer unbounded memory.
+// Telegram updates and cron payloads are tiny; 1 MB is comfortably generous.
+const MAX_BODY_BYTES = 1024 * 1024;
+
 function readBody(req: http.IncomingMessage): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (c) => (body += c));
+    let size = 0;
+    req.on("data", (c) => {
+      size += c.length;
+      if (size > MAX_BODY_BYTES) {
+        reject(new Error("request body too large"));
+        req.destroy();
+        return;
+      }
+      body += c;
+    });
     req.on("end", () => resolve(body));
+    req.on("error", reject);
   });
 }
 
@@ -69,7 +80,13 @@ export function startWebhookServer(bot: Bot): http.Server {
         send(401, { error: "bad secret token" });
         return;
       }
-      const raw = await readBody(req);
+      let raw: string;
+      try {
+        raw = await readBody(req);
+      } catch {
+        send(413, { error: "payload too large" });
+        return;
+      }
       // Acknowledge immediately; Telegram retries on a slow response.
       send(200);
 
@@ -84,9 +101,9 @@ export function startWebhookServer(bot: Bot): http.Server {
       }
       // Fire and forget: runs are long, the response is already sent. Requires
       // CPU-always-allocated on Cloud Run so this keeps executing.
-      void bot.handleUpdate(update).catch((err) =>
-        console.error("[webhook] handleUpdate failed:", err?.message),
-      );
+      void bot
+        .handleUpdate(update)
+        .catch((err) => console.error("[webhook] handleUpdate failed:", err?.message));
       return;
     }
 
@@ -98,7 +115,13 @@ export function startWebhookServer(bot: Bot): http.Server {
         send(401, { error: "unauthorized" });
         return;
       }
-      const raw = await readBody(req);
+      let raw: string;
+      try {
+        raw = await readBody(req);
+      } catch {
+        send(413, { error: "payload too large" });
+        return;
+      }
       send(200, { ok: true });
 
       let payload: { taskId?: string; chatId?: string; prompt?: string };
@@ -129,9 +152,7 @@ export function startWebhookServer(bot: Bot): http.Server {
         console.warn("[cron] /cron/run needs taskId, or chatId and prompt");
         return;
       }
-      void executeTask(task).catch((err) =>
-        console.error("[cron] task failed:", err?.message),
-      );
+      void executeTask(task).catch((err) => console.error("[cron] task failed:", err?.message));
       return;
     }
 

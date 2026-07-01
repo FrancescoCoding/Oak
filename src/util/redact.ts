@@ -10,8 +10,7 @@
  *     from files or APIs rather than the environment.
  */
 
-const SECRET_ENV_NAME =
-  /TOKEN|SECRET|KEY|PASSWORD|PASSWD|CREDENTIAL|CONNECTION_STRING|AUTH/i;
+const SECRET_ENV_NAME = /TOKEN|SECRET|KEY|PASSWORD|PASSWD|CREDENTIAL|CONNECTION_STRING|AUTH/i;
 
 const PATTERNS: Array<[RegExp, string]> = [
   [/sk-ant-[A-Za-z0-9_-]{8,}/g, "[redacted-api-key]"],

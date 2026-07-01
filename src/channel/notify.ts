@@ -1,6 +1,6 @@
 import type { Bot } from "grammy";
-import { toTelegramHtml, toPlainText } from "./format.js";
 import { redactSecrets } from "../util/redact.js";
+import { toPlainText, toTelegramHtml } from "./format.js";
 
 /**
  * Proactive messaging. The scheduler (and any other background task) uses this to

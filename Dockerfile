@@ -51,6 +51,12 @@ RUN chmod -R 555 scripts/ docs/
 COPY entrypoint.sh ./
 RUN chmod +x entrypoint.sh
 
+# PERSONAL.md is private, so it is deliberately excluded from the image
+# (.gitignore + .dockerignore). Link the project-root path to the durable volume
+# so a copy uploaded to /data/PERSONAL.md is picked up at runtime. The link dangles
+# harmlessly (agent treats PERSONAL.md as missing) when the volume has no copy.
+RUN ln -sf /data/PERSONAL.md /app/PERSONAL.md
+
 # /data is the mountpoint for the persistent volume (sessions + schedule).
 RUN chown -R node:node /app/dist /app/node_modules /app/package.json /app/entrypoint.sh && \
     mkdir -p /home/node/.claude && chown -R node:node /home/node && \

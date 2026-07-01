@@ -74,7 +74,9 @@ async function loadDataset({ refresh }) {
 }
 
 const has = (haystack, needle) =>
-  String(haystack ?? "").toLowerCase().includes(String(needle).toLowerCase());
+  String(haystack ?? "")
+    .toLowerCase()
+    .includes(String(needle).toLowerCase());
 
 function matches(ex, f) {
   if (f.muscle) {

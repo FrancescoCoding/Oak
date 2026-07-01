@@ -4,8 +4,8 @@
  * model into memory, so it is loaded lazily and only on the local path.
  */
 import { spawn } from "node:child_process";
+import { type AutomaticSpeechRecognitionPipeline, pipeline } from "@huggingface/transformers";
 import ffmpegStatic from "ffmpeg-static";
-import { pipeline, type AutomaticSpeechRecognitionPipeline } from "@huggingface/transformers";
 
 const ffmpegPath = ffmpegStatic as unknown as string | null;
 
@@ -16,9 +16,10 @@ let asrPromise: Promise<AutomaticSpeechRecognitionPipeline> | null = null;
 
 function getAsr(): Promise<AutomaticSpeechRecognitionPipeline> {
   if (!asrPromise) {
-    asrPromise = pipeline("automatic-speech-recognition", MODEL) as Promise<
-      AutomaticSpeechRecognitionPipeline
-    >;
+    asrPromise = pipeline(
+      "automatic-speech-recognition",
+      MODEL,
+    ) as Promise<AutomaticSpeechRecognitionPipeline>;
   }
   return asrPromise;
 }

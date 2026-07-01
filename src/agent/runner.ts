@@ -1,12 +1,12 @@
-import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { type SDKUserMessage, query } from "@anthropic-ai/claude-agent-sdk";
 import { config } from "../config.js";
-import { getSession, setSession, clearSession } from "./sessions.js";
-import { notionConfigured } from "../notion/status.js";
 import { type Attachment, buildUserContent } from "../media/attachments.js";
-import { pickPersonality, personaSystemPrompt } from "./personalities.js";
+import { notionConfigured } from "../notion/status.js";
+import { personaSystemPrompt, pickPersonality } from "./personalities.js";
+import { clearSession, getSession, setSession } from "./sessions.js";
 
 /**
  * Single-message stream. The SDK takes the prompt as an async iterable of user
@@ -46,9 +46,7 @@ const STANDARD_PATTERNS = [
   /\b(plan|recommend|suggest|advise|advice|should i|what.?should|why|how do|how should|design|review|analyse|analyze|explain|motivate|feeling|tired|sore|injur|pain|diet|nutrition|macro|calorie|meal|eat|goal|progress|report|compare|trend)\b/,
 ];
 
-const FAST_PREFIXES = [
-  /^(log|logged|did|done|completed|finished|just did|add)\b/,
-];
+const FAST_PREFIXES = [/^(log|logged|did|done|completed|finished|just did|add)\b/];
 
 export function classifyQuery(text: string): ModelTier {
   const lower = text.toLowerCase().trim();
@@ -104,7 +102,9 @@ function buildSessionContext(): string {
   if (notionConfigured()) {
     parts.push("Notion configured");
     const idsPath = path.join(PROJECT_ROOT, "data", "notion-ids.json");
-    parts.push(fs.existsSync(idsPath) ? "workspace built" : "workspace not built yet (run setup-notion)");
+    parts.push(
+      fs.existsSync(idsPath) ? "workspace built" : "workspace not built yet (run setup-notion)",
+    );
   } else {
     parts.push("Notion not configured (no persistence)");
   }
@@ -116,11 +116,17 @@ function buildSessionContext(): string {
     let looksTemplate = false;
     try {
       // The example's first goal; if it survives, the file was not personalised.
-      looksTemplate = fs.readFileSync(personalPath, "utf-8").includes("e.g. Add 10kg to my squat by September");
+      looksTemplate = fs
+        .readFileSync(personalPath, "utf-8")
+        .includes("e.g. Add 10kg to my squat by September");
     } catch {
       /* unreadable: treat as set, the agent can still ask */
     }
-    parts.push(looksTemplate ? "PERSONAL.md still has placeholder goals (ask the user to fill them)" : "PERSONAL.md set");
+    parts.push(
+      looksTemplate
+        ? "PERSONAL.md still has placeholder goals (ask the user to fill them)"
+        : "PERSONAL.md set",
+    );
   }
   return parts.join("; ");
 }
@@ -157,7 +163,10 @@ export async function runAgent(opts: {
   const persona = pickPersonality(chatId);
   const personaAppend = personaSystemPrompt(persona);
 
-  console.log(`[agent] Starting query (${model}, ${modelTier}, persona=${persona.id}):`, userMessage.slice(0, 100));
+  console.log(
+    `[agent] Starting query (${model}, ${modelTier}, persona=${persona.id}):`,
+    userMessage.slice(0, 100),
+  );
 
   for (let attempt = 0; ; attempt++) {
     let resultText = "";
@@ -184,8 +193,15 @@ export async function runAgent(opts: {
           settingSources: ["project"],
           skills: "all",
           allowedTools: [
-            "Bash", "Read", "Write", "Edit", "Glob", "Grep",
-            "WebFetch", "WebSearch", "Skill",
+            "Bash",
+            "Read",
+            "Write",
+            "Edit",
+            "Glob",
+            "Grep",
+            "WebFetch",
+            "WebSearch",
+            "Skill",
           ],
           permissionMode: "bypassPermissions",
           allowDangerouslySkipPermissions: true,
@@ -240,7 +256,9 @@ export async function runAgent(opts: {
       // established we do not blind-retry, to avoid duplicate Notion writes.
       if (isTransient(msg) && sessionId === undefined && attempt < MAX_QUERY_ATTEMPTS - 1) {
         const waitMs = Math.min(2 ** attempt, 8) * 1000;
-        console.warn(`[agent] transient error; retry ${attempt + 1}/${MAX_QUERY_ATTEMPTS - 1} in ${waitMs}ms`);
+        console.warn(
+          `[agent] transient error; retry ${attempt + 1}/${MAX_QUERY_ATTEMPTS - 1} in ${waitMs}ms`,
+        );
         await sleep(waitMs);
         continue;
       }

@@ -1,4 +1,10 @@
 # Oak - A Personal Fitness Goals Agent
+
+[![CI](https://github.com/FrancescoCoding/Oak/actions/workflows/ci.yml/badge.svg)](https://github.com/FrancescoCoding/Oak/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen.svg)](https://nodejs.org)
+[![Code style: Biome](https://img.shields.io/badge/code%20style-biome-60a5fa.svg)](https://biomejs.dev)
+
 A personal fitness coach, motivator, and food advisor you talk to on **Telegram**. It runs on
 the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview), keeps your training
 log in **Notion**, recommends what to train, builds your weekly plan, transcribes your voice
@@ -88,6 +94,17 @@ while the running agent is personalised to you. More in [docs/architecture.md](.
    Message your bot `/start`, then "set up my Notion" to build your workspace. Then just talk
    to it. Only one instance may poll a bot token at once, so do not run local and a deployed
    copy on the same token (you will get a Telegram 409).
+
+### Development
+
+```bash
+npm run lint     # Biome: lint + format check
+npm run format   # Biome: auto-format
+npm run build    # type-check and compile to dist/
+npm test         # build, then run the unit tests (node --test)
+```
+
+CI runs lint, build, and tests on every push and pull request.
 
 ## Commands
 

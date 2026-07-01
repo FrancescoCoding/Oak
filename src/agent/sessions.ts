@@ -4,9 +4,9 @@
  * Each chat keeps a single rolling Claude session.
  */
 
-import fs from "fs";
-import path from "path";
-import os from "os";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { config } from "../config.js";
 import { writeJsonAtomic } from "../util/atomicfile.js";
 

@@ -63,7 +63,7 @@ function parseArgs(argv) {
   return args;
 }
 
-async function notion(pathname, method = "GET", body) {
+async function notion(pathname, method, body) {
   if (!TOKEN) throw new Error("NOTION_TOKEN is not set. Notion is not configured.");
 
   for (let attempt = 0; ; attempt++) {
@@ -83,9 +83,10 @@ async function notion(pathname, method = "GET", body) {
     // normal error handling below.
     if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
       const retryAfter = Number(res.headers.get("retry-after"));
-      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
-        ? retryAfter * 1000
-        : Math.min(2 ** attempt, 8) * 1000;
+      const waitMs =
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : Math.min(2 ** attempt, 8) * 1000;
       await sleep(waitMs);
       continue;
     }
@@ -200,7 +201,9 @@ function validateValue(name, def, value) {
     const given = def.type === "multi_select" ? value.split(",").map((v) => v.trim()) : [value];
     for (const v of given) {
       if (v && !allowed.includes(v)) {
-        throw new Error(`"${v}" is not a valid option for "${name}". Allowed: ${allowed.join(", ")}`);
+        throw new Error(
+          `"${v}" is not a valid option for "${name}". Allowed: ${allowed.join(", ")}`,
+        );
       }
     }
   }
@@ -226,7 +229,10 @@ async function buildProperties(dbId, sets) {
     const name = pair.slice(0, idx).trim();
     const value = pair.slice(idx + 1);
     const def = schema[name];
-    if (!def) throw new Error(`Property "${name}" not found in database. Have: ${Object.keys(schema).join(", ")}`);
+    if (!def)
+      throw new Error(
+        `Property "${name}" not found in database. Have: ${Object.keys(schema).join(", ")}`,
+      );
     validateValue(name, def, value);
     props[name] = buildPropertyValue(def.type, value);
   }
@@ -293,10 +299,24 @@ function rt(text) {
 // The Notion "color" values valid on a callout/text block. Anything outside this
 // set is rejected so a typo silently degrades to "default" instead of erroring.
 const NOTION_COLORS = new Set([
-  "default", "gray", "brown", "orange", "yellow", "green", "blue", "purple",
-  "pink", "red",
-  "gray_background", "brown_background", "orange_background", "yellow_background",
-  "green_background", "blue_background", "purple_background", "pink_background",
+  "default",
+  "gray",
+  "brown",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+  "purple",
+  "pink",
+  "red",
+  "gray_background",
+  "brown_background",
+  "orange_background",
+  "yellow_background",
+  "green_background",
+  "blue_background",
+  "purple_background",
+  "pink_background",
   "red_background",
 ]);
 
@@ -324,7 +344,10 @@ function markdownToBlocks(md) {
     const line = lines[i];
     const trimmed = line.trim();
 
-    if (trimmed === "") { i++; continue; }
+    if (trimmed === "") {
+      i++;
+      continue;
+    }
 
     // Column layout. Syntax:
     //   ::: columns
@@ -367,7 +390,8 @@ function markdownToBlocks(md) {
 
     if (trimmed === "---" || trimmed === "***") {
       blocks.push({ object: "block", type: "divider", divider: {} });
-      i++; continue;
+      i++;
+      continue;
     }
 
     // Callout: "> [!note] text", "> [icon] text", "> [icon|color] text", or plain "> text".
@@ -387,7 +411,8 @@ function markdownToBlocks(md) {
           color,
         },
       });
-      i++; continue;
+      i++;
+      continue;
     }
 
     const heading = trimmed.match(/^(#{1,3})\s+(.*)$/);
@@ -395,14 +420,19 @@ function markdownToBlocks(md) {
       const level = heading[1].length;
       const type = `heading_${level}`;
       blocks.push({ object: "block", type, [type]: { rich_text: rt(heading[2]) } });
-      i++; continue;
+      i++;
+      continue;
     }
 
     // Table: consecutive "| a | b |" lines (a separator row like |---|---| is skipped)
     if (/^\|.*\|$/.test(trimmed)) {
       const rows = [];
       while (i < lines.length && /^\|.*\|$/.test(lines[i].trim())) {
-        const cells = lines[i].trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+        const cells = lines[i]
+          .trim()
+          .replace(/^\||\|$/g, "")
+          .split("|")
+          .map((c) => c.trim());
         if (!cells.every((c) => /^:?-{2,}:?$/.test(c) || c === "")) rows.push(cells);
         i++;
       }
@@ -435,7 +465,8 @@ function markdownToBlocks(md) {
         type: "bulleted_list_item",
         bulleted_list_item: { rich_text: rt(bullet[1]) },
       });
-      i++; continue;
+      i++;
+      continue;
     }
 
     const numbered = trimmed.match(/^\d+\.\s+(.*)$/);
@@ -445,7 +476,8 @@ function markdownToBlocks(md) {
         type: "numbered_list_item",
         numbered_list_item: { rich_text: rt(numbered[1]) },
       });
-      i++; continue;
+      i++;
+      continue;
     }
 
     blocks.push({ object: "block", type: "paragraph", paragraph: { rich_text: rt(trimmed) } });
@@ -577,8 +609,7 @@ async function cmdQueryRecent(args) {
   // Resolve property names from the actual schema so this adapts to any database
   // (e.g. "RPE (1-10)" vs "RPE"), rather than assuming fixed names.
   const titleProp = Object.keys(schema).find((k) => schema[k].type === "title");
-  const byName = (needle) =>
-    Object.keys(schema).find((k) => k.toLowerCase().includes(needle));
+  const byName = (needle) => Object.keys(schema).find((k) => k.toLowerCase().includes(needle));
   const focusProp = byName("focus");
   const rpeProp = byName("rpe");
   const exProp = byName("exercise");

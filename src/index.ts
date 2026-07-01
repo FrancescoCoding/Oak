@@ -1,19 +1,19 @@
-import http from "http";
+import http from "node:http";
 import { Bot } from "grammy";
-import { config, checkClaudeAuth } from "./config.js";
-import { isAllowed } from "./channel/permissions.js";
-import { evictExpired, getSession, clearSession } from "./agent/sessions.js";
-import { runAgent, classifyQuery } from "./agent/runner.js";
+import { pickPersonality } from "./agent/personalities.js";
+import { classifyQuery, runAgent } from "./agent/runner.js";
+import { clearSession, evictExpired, getSession } from "./agent/sessions.js";
+import { toPlainText, toTelegramHtml } from "./channel/format.js";
 import { registerBot, sendMessage, splitMessage } from "./channel/notify.js";
+import { isAllowed } from "./channel/permissions.js";
+import { registerTelegramWebhook, startWebhookServer } from "./channel/webhook-server.js";
+import { checkClaudeAuth, config } from "./config.js";
+import { type Attachment, isSupportedAttachment } from "./media/attachments.js";
+import { transcribeAudio, transcriptionAvailable, warmupTranscriber } from "./media/transcribe.js";
+import { notionConfigured } from "./notion/status.js";
 import { initScheduler } from "./scheduler/scheduler.js";
 import { startSchedulerServer } from "./scheduler/server.js";
-import { notionConfigured } from "./notion/status.js";
-import { pickPersonality } from "./agent/personalities.js";
-import { transcribeAudio, warmupTranscriber, transcriptionAvailable } from "./media/transcribe.js";
-import { type Attachment, isSupportedAttachment } from "./media/attachments.js";
-import { toTelegramHtml, toPlainText } from "./channel/format.js";
 import { redactSecrets } from "./util/redact.js";
-import { startWebhookServer, registerTelegramWebhook } from "./channel/webhook-server.js";
 
 const bot = new Bot(config.telegramBotToken);
 
@@ -21,7 +21,11 @@ const bot = new Bot(config.telegramBotToken);
 // retry, so replies are not dropped when messages go out too fast.
 bot.api.config.use(async (prev, method, payload, signal) => {
   let result = await prev(method, payload, signal);
-  for (let attempt = 0; attempt < 3 && !result.ok && (result as any).error_code === 429; attempt++) {
+  for (
+    let attempt = 0;
+    attempt < 3 && !result.ok && (result as any).error_code === 429;
+    attempt++
+  ) {
     const retryAfter = (result as any).parameters?.retry_after ?? 1;
     await new Promise((r) => setTimeout(r, (retryAfter + 0.5) * 1000));
     result = await prev(method, payload, signal);
@@ -70,8 +74,7 @@ function releaseSlot(): void {
 const COMMAND_PROMPTS: Record<string, string> = {
   start:
     "Introduce yourself briefly as my fitness coach and tell me how to use you: I can log workouts in plain language, ask what to train, ask for a weekly plan, ask for nutrition advice, and ask for a progress report. Keep it short and welcoming.",
-  help:
-    "List what you can help me with: logging workouts (including photos of meals, food labels, or progress pictures), recommending today's session, planning my week, nutrition advice, progress reports, and reminders. Mention that /new starts a fresh conversation. Keep it concise.",
+  help: "List what you can help me with: logging workouts (including photos of meals, food labels, or progress pictures), recommending today's session, planning my week, nutrition advice, progress reports, and reminders. Mention that /new starts a fresh conversation. Keep it concise.",
   setup:
     "Set up my Notion workspace for training: create the Workout Log and Goals databases if they do not already exist, then confirm what you created and how to use them.",
   log: "I want to log a workout. Ask me what I did if I have not already told you.",
@@ -235,7 +238,9 @@ bot.on("message", async (ctx) => {
   if (!text.trim()) {
     const isVoice = Boolean(ctx.message?.voice || ctx.message?.audio || ctx.message?.video_note);
     if (isVoice && !transcriptionAvailable()) {
-      await ctx.reply("I can't transcribe voice notes in this setup. Type it out and I've got you.");
+      await ctx.reply(
+        "I can't transcribe voice notes in this setup. Type it out and I've got you.",
+      );
       return;
     }
     try {
@@ -302,6 +307,8 @@ const healthServer =
         }
       })
     : null;
+// In webhook mode this holds the HTTP server so shutdown can close it cleanly.
+let webhookServer: http.Server | null = null;
 healthServer?.listen(config.port, "0.0.0.0", () =>
   console.log(`[health] Listening on :${config.port}/healthz`),
 );
@@ -321,10 +328,12 @@ setInterval(evictExpired, 15 * 60 * 1000);
   if (config.mode === "webhook") {
     // Scale-to-zero path: Telegram pushes updates to the HTTP server, and an
     // external scheduler fires reminders. No long-polling loop runs.
-    startWebhookServer(bot);
+    webhookServer = startWebhookServer(bot);
     await registerTelegramWebhook(bot);
     botRunning = true;
-    console.log(`${config.agentName} is running (webhook mode). Notion ${notionConfigured() ? "enabled" : "disabled"}.`);
+    console.log(
+      `${config.agentName} is running (webhook mode). Notion ${notionConfigured() ? "enabled" : "disabled"}.`,
+    );
     // No online ping here: in scale-to-zero the instance may start cold for any
     // request, so a startup message would fire on every cold start.
     return;
@@ -333,7 +342,9 @@ setInterval(evictExpired, 15 * 60 * 1000);
   // Polling path: long-poll Telegram. Best for local and always-on hosts.
   botRunning = true;
   warmupTranscriber();
-  console.log(`${config.agentName} is running (polling mode). Notion ${notionConfigured() ? "enabled" : "disabled"}.`);
+  console.log(
+    `${config.agentName} is running (polling mode). Notion ${notionConfigured() ? "enabled" : "disabled"}.`,
+  );
   if (config.ownerChatId) {
     const ownerPersona = pickPersonality(config.ownerChatId);
     const onlineName = ownerPersona.voice ? ownerPersona.name : config.agentName;
@@ -351,6 +362,7 @@ setInterval(evictExpired, 15 * 60 * 1000);
 async function shutdown() {
   console.log("[shutdown] Shutting down...");
   healthServer?.close();
+  webhookServer?.close();
   // bot.stop() only applies to the long-polling loop; ignore if it was never started.
   if (config.mode === "polling") await bot.stop().catch(() => {});
   process.exit(0);
