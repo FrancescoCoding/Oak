@@ -16,11 +16,17 @@ From the user's message, extract:
 - Duration and RPE only if the user stated them.
 - Any notes the user actually said ("felt strong", "left knee tight").
 
-**Log only what the user explicitly stated.** No interpolation, no assumptions, no narrative. If the user did not mention RPE, duration, how it felt, or notes, leave those fields blank. Never write invented detail into the Notes field (for example "back felt fine, stopped early" when the user never said that). The one allowed exception is a neutral fact you can derive from what they said (for example "partial session" when they said they had to leave early), kept to one sentence with nothing embellished.
+**Aim for a complete row.** A good coach keeps a complete log, so try to fill every property the schema has (Session, Date, Week, Day, Focus, Status, Top Set, Volume, Duration, RPE, Program), in two steps:
 
-**Date.** Do not set a date unless you are sure the session is real and you know when it happened. Default to today (from the Telegram message header timestamp, not your own day reasoning) only when the user says "just now", "today", or similar, or has clearly just trained. If they say "yesterday", "Monday", etc., use that. If it is unclear whether the session is real or a test, ask one question first: "Did you actually do this today, or are we testing?" and only set a date once confirmed.
+1. **Derive what is derivable, without asking.** Day follows from the Date. Program and Week come from the active program (Programs database or Dashboard hero); if there is one active program, link it. Volume is computable when the user gave a full breakdown (sum of sets x reps x load). Top Set is the heaviest load they stated. Status is Completed unless they said otherwise. These are facts, not guesses.
 
-If a key detail is genuinely ambiguous, ask one short question. Do not interrogate: it should be faster to log with you than with a spreadsheet.
+2. **Ask once about the rest.** If fields are still missing after deriving (typically RPE, duration, sometimes a load they skipped), ask for them once, bundled into a single short question: "Quick fill-in so the log is complete: how hard out of 10, and roughly how long?" One message, not one question per field. If the user answers, log it; if they say they do not know, do not remember, or just ignore the question, log without those fields and move on. Never ask twice about the same field for the same session, and never let the missing fields delay or block the logging itself.
+
+**Never fabricate.** A blank field is always better than an invented value. No interpolation, no assumptions, no narrative. Never write invented detail into the Notes field (for example "back felt fine, stopped early" when the user never said that). The one allowed exception is a neutral fact you can derive from what they said (for example "partial session" when they said they had to leave early), kept to one sentence with nothing embellished.
+
+**Date.** Do not set a date unless you are sure the session is real and you know when it happened. Default to today (from the Telegram message header timestamp, not your own day reasoning) only when the user says "just now", "today", or similar, or has clearly just trained. If they say "yesterday", "Monday", etc., use that. If it is unclear whether the session is real or a test, ask one question first: "Did you actually do this today, or are we testing?" and only set a date once confirmed. Fold this into the same single fill-in question if you are asking one anyway.
+
+If a key detail is genuinely ambiguous, resolve it in that same single question. Do not interrogate: it should be faster to log with you than with a spreadsheet.
 
 ## 2. Write to Notion
 
@@ -39,15 +45,20 @@ directly to the database through the Notion REST API:
 ```bash
 node scripts/notion.mjs log --db "Workout Log" \
   --set "Session=Push A" --set "Focus=Chest, Shoulders, Triceps" \
-  --set "Date=2026-06-23" --set "Status=Completed" \
-  --set "Top Set=60" --set "RPE (1-10)=8" --set "Duration (min)=55"
+  --set "Date=2026-06-23" --set "Day=Monday" --set "Week=Week 2" \
+  --set "Status=Completed" --set "Program=Current Program" \
+  --set "Top Set=60" --set "Volume (kg)=4200" \
+  --set "RPE (1-10)=8" --set "Duration (min)=55"
 ```
 
 The helper reads the database schema and coerces each `--set` to the right
-property type (title, select, multi_select, date, number). Property names must
-match the database exactly (see `docs/notion-architecture.md`); if you get one
-wrong the helper fails and prints the real property names, so use that to correct
-yourself. Only set properties the user actually gave you; leave the rest out.
+property type (title, select, multi_select, date, number, relation). For the
+Program relation, pass the program row's title (or its page id); the helper looks
+it up in the related database. Property names must match the database exactly
+(see `docs/notion-architecture.md`); if you get one wrong the helper fails and
+prints the real property names, so use that to correct yourself. Set every
+property you know or derived; leave out only what remains genuinely unknown
+after the one fill-in question.
 
 The Workout Log has no free-text exercises property, so put the per-lift
 breakdown in the row's page body with `append` (using the row id the `log`

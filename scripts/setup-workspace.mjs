@@ -261,7 +261,7 @@ async function main() {
       Session: { title: {} },
       Date: { date: {} },
       Week: sel("Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6", "Week 7", "Week 8"),
-      Day: sel("Monday", "Wednesday", "Friday", "Saturday", "Sunday"),
+      Day: sel("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"),
       Focus: multi(
         "Legs",
         "Chest",
@@ -332,7 +332,7 @@ async function ensureDashboard() {
   } else {
     console.log(`= Dashboard page exists (${pageId})`);
   }
-  cache.__dashboard = { pageId, columns: await captureRow1Columns(pageId) };
+  cache.__dashboard = { pageId, columns: await captureTileColumns(pageId) };
 }
 
 async function buildDashboardBody(pageId) {
@@ -412,14 +412,25 @@ async function ensureKnowledgeBase() {
   cache.__knowledgeBase = pageId;
 }
 
-/** Fetch the first column_list on the Dashboard and return its column ids. */
-async function captureRow1Columns(pageId) {
+/** Capture every Dashboard tile column id, row by row, keyed by tile name.
+ *  Row order matches buildDashboardBody; keep TILE_ROWS in notion.mjs in sync. */
+const TILE_ROWS = [
+  ["thisWeek", "goals", "bodyStats"],
+  ["nextSession", "activeProgram"],
+  ["nutrition", "quickCommands"],
+];
+async function captureTileColumns(pageId) {
   const top = await api(`blocks/${pageId}/children`);
-  const cl = (top.results ?? []).find((b) => b.type === "column_list");
-  if (!cl) return {};
-  const cols = await api(`blocks/${cl.id}/children`);
-  const ids = (cols.results ?? []).map((c) => c.id);
-  return { listId: cl.id, thisWeek: ids[0], goals: ids[1], bodyStats: ids[2] };
+  const lists = (top.results ?? []).filter((b) => b.type === "column_list");
+  const out = { listId: lists[0]?.id };
+  for (let r = 0; r < lists.length && r < TILE_ROWS.length; r++) {
+    const cols = await api(`blocks/${lists[r].id}/children`);
+    const ids = (cols.results ?? []).map((c) => c.id);
+    TILE_ROWS[r].forEach((name, i) => {
+      if (ids[i]) out[name] = ids[i];
+    });
+  }
+  return out;
 }
 
 main().catch((err) => {

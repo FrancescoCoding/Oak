@@ -78,11 +78,13 @@ node scripts/notion.mjs sync-dashboard --now 2026-06-30   # --now is the date fr
 
 `sync-dashboard` re-derives all three tiles directly from the databases (session counts, goal progress, latest body stats), so the numbers are always consistent with the data and never hand-typed. Run it after logging a session, changing a goal, or logging body stats.
 
-For one-off or prose tiles, `refresh-tile` replaces a single tile from your own markdown (never edit blocks in place; their ids shift). Tile ids are cached in `data/notion-ids.json`, so refer to tiles by name:
+For one-off or prose tiles, `refresh-tile` replaces a single tile from your own markdown (never edit blocks in place; their ids shift). Tile ids are cached in `data/notion-ids.json` and self-heal from the live page, so refer to tiles by name: `thisWeek`, `goals`, `bodyStats`, `nextSession`, `activeProgram`, `nutrition`, `quickCommands`.
 
 ```bash
 node scripts/notion.mjs refresh-tile --tile goals --md "> [🎯] **Goals**\n- Squat 100kg by Sept"
 ```
+
+Treat the prose tiles (Next Session, Active Program, Nutrition) as yours to keep current, proactively: after recommending or planning a session, refresh Next Session; after agreeing nutrition targets, refresh Nutrition; after a program or focus change, refresh Active Program. If you notice any tile is stale against what you already know, fix it in the same turn rather than leaving it for the user to spot.
 
 Rebuild the whole Dashboard (`node scripts/setup-workspace.mjs --rebuild-dashboard`) when the program changes, the week advances, or more than three tiles need updating at once. If no Dashboard exists, do not invent one unprompted; offer to build it via setup-notion.
 

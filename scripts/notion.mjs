@@ -236,9 +236,15 @@ async function resolveDbId(dbRef) {
  * Mirrors captureRow1Columns in setup-workspace.mjs: the first column_list on
  * the Dashboard holds, in order, the This Week / Goals / Body Stats tiles.
  */
-async function resolveDashboard() {
+const TILE_ROWS = [
+  ["thisWeek", "goals", "bodyStats"],
+  ["nextSession", "activeProgram"],
+  ["nutrition", "quickCommands"],
+];
+
+async function resolveDashboard(force = false) {
   const cached = readCache().__dashboard;
-  if (cached?.pageId && cached?.columns?.thisWeek) {
+  if (!force && cached?.pageId && cached?.columns?.thisWeek) {
     try {
       await notion(`/blocks/${cached.columns.thisWeek}`);
       return cached;
@@ -259,12 +265,15 @@ async function resolveDashboard() {
   if (!page) {
     throw new Error("No Dashboard page found under the Hub. Run setup-workspace.mjs to build it.");
   }
-  const cl = (await listChildren(page.id)).find((b) => b.type === "column_list");
-  const colIds = cl ? (await listChildren(cl.id)).map((c) => c.id) : [];
-  const dash = {
-    pageId: page.id,
-    columns: { listId: cl?.id, thisWeek: colIds[0], goals: colIds[1], bodyStats: colIds[2] },
-  };
+  const lists = (await listChildren(page.id)).filter((b) => b.type === "column_list");
+  const columns = { listId: lists[0]?.id };
+  for (let r = 0; r < lists.length && r < TILE_ROWS.length; r++) {
+    const ids = (await listChildren(lists[r].id)).map((c) => c.id);
+    TILE_ROWS[r].forEach((name, i) => {
+      if (ids[i]) columns[name] = ids[i];
+    });
+  }
+  const dash = { pageId: page.id, columns };
   const cache = readCache();
   cache.__dashboard = dash;
   writeCache(cache);
@@ -337,6 +346,40 @@ function validateValue(name, def, value) {
   }
 }
 
+/**
+ * Resolve a relation value to related page ids. Accepts a raw page id, or a row
+ * title looked up in the related database (the title property's id is always
+ * "title", so the filter works regardless of the property's display name).
+ */
+async function resolveRelationIds(def, value) {
+  const ref = value.trim();
+  if (!ref) return [];
+  if (/^[0-9a-f]{32}$/i.test(ref.replace(/-/g, ""))) return [{ id: ref }];
+  const relDb = def.relation?.database_id;
+  if (!relDb) throw new Error("Relation property has no related database id.");
+  const res = await notion(`/databases/${relDb}/query`, "POST", {
+    filter: { property: "title", title: { equals: ref } },
+    page_size: 2,
+  });
+  const rows = res.results ?? [];
+  if (rows.length === 0) {
+    // Self-correcting error: list the real row titles so the caller can retry
+    // with an exact match (same pattern as the unknown-property message).
+    const all = await notion(`/databases/${relDb}/query`, "POST", { page_size: 25 });
+    const titles = (all.results ?? [])
+      .map((p) => {
+        const t = Object.values(p.properties ?? {}).find((v) => v.type === "title");
+        return (t?.title ?? []).map((x) => x.plain_text).join("");
+      })
+      .filter(Boolean);
+    throw new Error(
+      `No row titled "${ref}" in the related database. Have: ${titles.join(", ") || "(no rows)"}`,
+    );
+  }
+  if (rows.length > 1) throw new Error(`Ambiguous: multiple rows titled "${ref}" in the related database.`);
+  return [{ id: rows[0].id }];
+}
+
 async function buildProperties(dbId, sets) {
   const db = await notion(`/databases/${dbId}`);
   const schema = db.properties ?? {};
@@ -351,6 +394,10 @@ async function buildProperties(dbId, sets) {
       throw new Error(
         `Property "${name}" not found in database. Have: ${Object.keys(schema).join(", ")}`,
       );
+    if (def.type === "relation") {
+      props[name] = { relation: await resolveRelationIds(def, value) };
+      continue;
+    }
     validateValue(name, def, value);
     props[name] = buildPropertyValue(def.type, value);
   }
@@ -445,6 +492,7 @@ const TILE_COLORS = {
   thisWeek: "gray_background",
   goals: "brown_background",
   bodyStats: "red_background",
+  nutrition: "green_background",
 };
 
 /** Validate a Notion color, returning "default" for missing/unknown values. */
@@ -779,11 +827,14 @@ async function cmdAppend(args) {
 async function cmdRefreshTile(args) {
   let columnId = args.column;
   if (!columnId && args.tile) {
-    const cols = (await resolveDashboard()).columns ?? {};
+    let cols = (await resolveDashboard()).columns ?? {};
+    // An older cache may only hold the Row 1 tiles; re-capture from the live
+    // page before giving up on a Row 2/3 tile like nextSession or nutrition.
+    if (!cols[args.tile]) cols = (await resolveDashboard(true)).columns ?? {};
     columnId = cols[args.tile];
     if (!columnId) {
       throw new Error(
-        `No column found for tile "${args.tile}" on the Dashboard. Run setup-workspace.mjs, or pass --column <id>.`,
+        `No column found for tile "${args.tile}" on the Dashboard. Known tiles: ${TILE_ROWS.flat().join(", ")}. Run setup-workspace.mjs, or pass --column <id>.`,
       );
     }
   }
@@ -931,7 +982,7 @@ async function cmdResolveWorkspace() {
   writeCache(cache);
   let dashboard = "not found";
   try {
-    dashboard = (await resolveDashboard()).pageId;
+    dashboard = (await resolveDashboard(true)).pageId;
   } catch {
     /* no Dashboard page yet; setup-workspace.mjs builds it */
   }
