@@ -102,9 +102,22 @@ function buildSessionContext(): string {
   if (notionConfigured()) {
     parts.push("Notion configured");
     const idsPath = path.join(PROJECT_ROOT, "data", "notion-ids.json");
-    parts.push(
-      fs.existsSync(idsPath) ? "workspace built" : "workspace not built yet (run setup-notion)",
-    );
+    if (fs.existsSync(idsPath)) {
+      parts.push("workspace built");
+    } else {
+      // A missing id cache does not prove the workspace is missing: on a fresh
+      // deployment the gitignored data/ dir starts empty while the workspace
+      // already exists in Notion. If a Hub is pinned, say so and tell the model
+      // to verify against Notion instead of asserting emptiness.
+      const hubPinned =
+        Boolean(config.notionParentPageId) ||
+        fs.existsSync(path.join(PROJECT_ROOT, "config", "notion-hub.json"));
+      parts.push(
+        hubPinned
+          ? "id cache missing but a Hub page is pinned; the workspace likely already exists. Run `node scripts/notion.mjs resolve-workspace` (deterministic, read-only) to repopulate the cache before any Notion read, and never conclude the log is empty from a resolution failure"
+          : "workspace not built yet (run setup-notion)",
+      );
+    }
   } else {
     parts.push("Notion not configured (no persistence)");
   }

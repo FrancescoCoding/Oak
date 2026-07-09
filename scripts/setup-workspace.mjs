@@ -42,9 +42,23 @@ const opt = (name) => {
   return i !== -1 ? args[i + 1] : undefined;
 };
 
-const HUB = opt("hub") ?? process.env.NOTION_PARENT_PAGE_ID;
+// Hub resolution order: --hub flag, NOTION_PARENT_PAGE_ID, then the committable
+// pin file config/notion-hub.json ({ "hubPageId": "..." }) so a fresh deployment
+// with an empty data/ mount can still rebuild against the right workspace.
+function pinnedHub() {
+  try {
+    return JSON.parse(
+      fs.readFileSync(path.resolve(process.cwd(), "config", "notion-hub.json"), "utf8"),
+    ).hubPageId;
+  } catch {
+    return undefined;
+  }
+}
+const HUB = opt("hub") ?? process.env.NOTION_PARENT_PAGE_ID ?? pinnedHub();
 if (!HUB) {
-  console.error("No Hub page id. Set NOTION_PARENT_PAGE_ID or pass --hub <pageId>.");
+  console.error(
+    "No Hub page id. Set NOTION_PARENT_PAGE_ID, pass --hub <pageId>, or add config/notion-hub.json.",
+  );
   process.exit(1);
 }
 

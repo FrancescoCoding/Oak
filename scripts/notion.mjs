@@ -24,6 +24,7 @@
  * the default-view setup still has to be done once by hand in Notion.
  *
  * Usage:
+ *   node scripts/notion.mjs resolve-workspace        # rebuild the id cache from the pinned Hub
  *   node scripts/notion.mjs resolve-db --name "Workout Log"
  *   node scripts/notion.mjs query-recent --db "Workout Log" --focus Push --limit 3
  *   node scripts/notion.mjs log --db "Workout Log" \
@@ -118,7 +119,48 @@ function writeCache(cache) {
   fs.renameSync(tmp, CACHE_FILE);
 }
 
-/** Accept a raw id or a database name; resolve names via cache then search. */
+// ─── Hub scoping ─────────────────────────────────────────────────────────────
+// Notion ids compare equal with or without dashes and regardless of case.
+const normId = (id) => (id ?? "").replace(/-/g, "").toLowerCase();
+
+// The pinned Hub (root) page. Every workspace object hangs directly off it, so
+// scoping name resolution to the Hub's children means a shared integration that
+// can see *other* Notion spaces (e.g. a demo workspace) can never resolve to a
+// stranger's database of the same name. Resolution order: id cache, then the
+// NOTION_PARENT_PAGE_ID env var, then config/notion-hub.json (a committable pin
+// that survives deployments where the gitignored data/ cache starts empty).
+const HUB_PIN_FILE = path.resolve(process.cwd(), "config", "notion-hub.json");
+function hubId() {
+  const cache = readCache();
+  let pinned;
+  try {
+    pinned = JSON.parse(fs.readFileSync(HUB_PIN_FILE, "utf8")).hubPageId;
+  } catch {
+    /* no pin file; env or cache must carry it */
+  }
+  return normId(cache.__hub ?? process.env.NOTION_PARENT_PAGE_ID ?? pinned ?? "");
+}
+
+/** Paginated list of a block's (or page's) children. */
+async function listChildren(blockId) {
+  const out = [];
+  let cursor;
+  do {
+    const qs = cursor ? `?start_cursor=${cursor}` : "";
+    const res = await notion(`/blocks/${blockId}/children${qs}`);
+    out.push(...(res.results ?? []));
+    cursor = res.has_more ? res.next_cursor : undefined;
+  } while (cursor);
+  return out;
+}
+
+/** Accept a raw id or a database name; resolve names via cache, then by walking
+ *  the pinned Hub's children. The Hub walk is the primary fallback because every
+ *  workspace database hangs directly off the Hub and block-children listing is
+ *  strongly consistent; Notion's /search API is eventually-consistent and often
+ *  returns nothing for integration tokens (a fresh deployment with an empty
+ *  data/ cache would then wrongly conclude the workspace is empty). Search is
+ *  only used when no Hub is pinned at all. */
 async function resolveDbId(dbRef) {
   if (!dbRef) throw new Error("--db is required (id or database name)");
   // A 32-hex (optionally dashed) string is already an id.
@@ -129,8 +171,14 @@ async function resolveDbId(dbRef) {
     // Validate the cached id still resolves. If the database was deleted and
     // recreated in Notion, the cached id is stale (404s); drop it and re-resolve
     // by name below, so the cache self-heals rather than needing a manual clear.
+    // Also confirm it still lives under the pinned Hub: a database moved out of
+    // the workspace must not keep being written to via a stale cache entry.
     try {
-      await notion(`/databases/${cache[dbRef]}`);
+      const db = await notion(`/databases/${cache[dbRef]}`);
+      const hub = hubId();
+      if (hub && normId(db.parent?.page_id) !== hub) {
+        throw new Error(`cached "${dbRef}" no longer lives under the Hub`);
+      }
       return cache[dbRef];
     } catch {
       delete cache[dbRef];
@@ -138,19 +186,89 @@ async function resolveDbId(dbRef) {
     }
   }
 
-  const found = await notion("/search", "POST", {
-    query: dbRef,
-    filter: { value: "database", property: "object" },
-  });
-  const match =
-    found.results?.find((r) => {
-      const title = (r.title ?? []).map((t) => t.plain_text).join("");
-      return title.toLowerCase() === dbRef.toLowerCase();
-    }) ?? found.results?.[0];
-  if (!match) throw new Error(`No database found matching "${dbRef}"`);
+  const hub = hubId();
+  let candidates;
+  if (hub) {
+    // Deterministic: enumerate the Hub's direct children. A child_database
+    // block's id IS the database id.
+    candidates = (await listChildren(hub))
+      .filter((b) => b.type === "child_database")
+      .map((b) => ({ id: b.id, name: b.child_database?.title ?? "" }));
+  } else {
+    const found = await notion("/search", "POST", {
+      query: dbRef,
+      filter: { value: "database", property: "object" },
+    });
+    candidates = (found.results ?? []).map((r) => ({
+      id: r.id,
+      name: (r.title ?? []).map((t) => t.plain_text).join(""),
+    }));
+  }
+
+  const exact = candidates.filter((r) => r.name.toLowerCase() === dbRef.toLowerCase());
+
+  // Refuse to guess when the name is ambiguous within the Hub: picking one would
+  // risk showing the wrong workspace's data. Fail loud so the user repins/cleans.
+  if (exact.length > 1) {
+    throw new Error(
+      `Ambiguous: ${exact.length} databases named "${dbRef}" under the Hub. Run scripts/setup-workspace.mjs to repin ids, or unshare the duplicate in Notion.`,
+    );
+  }
+
+  // Only ever fall back to a lone candidate when there is NO Hub pin at all
+  // (single-space integration); with a Hub set, an exact title match is required.
+  const match = exact[0] ?? (!hub && candidates.length === 1 ? candidates[0] : undefined);
+  if (!match) {
+    throw new Error(
+      hub
+        ? `No database named "${dbRef}" found under the pinned Hub. Run setup-workspace.mjs, or confirm the integration is shared with the Hub page.`
+        : `No unambiguous database matching "${dbRef}". Set NOTION_PARENT_PAGE_ID (the Hub page id) so resolution can be scoped to your workspace.`,
+    );
+  }
   cache[dbRef] = match.id;
   writeCache(cache);
   return match.id;
+}
+
+/**
+ * Resolve the Dashboard page and its Row 1 tile columns, self-healing from the
+ * pinned Hub when the cache is empty (fresh deployment) or stale (rebuilt page).
+ * Mirrors captureRow1Columns in setup-workspace.mjs: the first column_list on
+ * the Dashboard holds, in order, the This Week / Goals / Body Stats tiles.
+ */
+async function resolveDashboard() {
+  const cached = readCache().__dashboard;
+  if (cached?.pageId && cached?.columns?.thisWeek) {
+    try {
+      await notion(`/blocks/${cached.columns.thisWeek}`);
+      return cached;
+    } catch {
+      /* stale (page rebuilt or deleted); re-resolve from the Hub below */
+    }
+  }
+
+  const hub = hubId();
+  if (!hub) {
+    throw new Error(
+      "No Dashboard cached and no Hub pinned. Set NOTION_PARENT_PAGE_ID or config/notion-hub.json, or run setup-workspace.mjs.",
+    );
+  }
+  const page = (await listChildren(hub)).find(
+    (b) => b.type === "child_page" && b.child_page?.title === "Dashboard",
+  );
+  if (!page) {
+    throw new Error("No Dashboard page found under the Hub. Run setup-workspace.mjs to build it.");
+  }
+  const cl = (await listChildren(page.id)).find((b) => b.type === "column_list");
+  const colIds = cl ? (await listChildren(cl.id)).map((c) => c.id) : [];
+  const dash = {
+    pageId: page.id,
+    columns: { listId: cl?.id, thisWeek: colIds[0], goals: colIds[1], bodyStats: colIds[2] },
+  };
+  const cache = readCache();
+  cache.__dashboard = dash;
+  writeCache(cache);
+  return dash;
 }
 
 // ─── property value coercion based on the db schema ──────────────────────────
@@ -661,11 +779,11 @@ async function cmdAppend(args) {
 async function cmdRefreshTile(args) {
   let columnId = args.column;
   if (!columnId && args.tile) {
-    const cols = readCache().__dashboard?.columns ?? {};
+    const cols = (await resolveDashboard()).columns ?? {};
     columnId = cols[args.tile];
     if (!columnId) {
       throw new Error(
-        `No cached column for tile "${args.tile}". Run setup-workspace.mjs first, or pass --column <id>.`,
+        `No column found for tile "${args.tile}" on the Dashboard. Run setup-workspace.mjs, or pass --column <id>.`,
       );
     }
   }
@@ -685,9 +803,9 @@ async function cmdRefreshTile(args) {
  * from the chat header date (defaults to the system date).
  */
 async function cmdSyncDashboard(args) {
-  const cols = readCache().__dashboard?.columns ?? {};
+  const cols = (await resolveDashboard()).columns ?? {};
   if (!cols.thisWeek && !cols.goals && !cols.bodyStats) {
-    throw new Error("No Dashboard columns cached. Run setup-workspace.mjs first.");
+    throw new Error("Dashboard has no tile columns. Run setup-workspace.mjs first.");
   }
   const now = args.now ? new Date(args.now) : new Date();
   if (Number.isNaN(now.getTime())) throw new Error(`--now must be an ISO date, got "${args.now}"`);
@@ -780,8 +898,53 @@ async function cmdCreatePage(args) {
   console.log(page.id);
 }
 
+/**
+ * Repopulate the whole id cache deterministically from the pinned Hub in a few
+ * API calls: every child database by exact title, the Knowledge Base page, and
+ * the Dashboard with its tile columns. This is the fresh-session bootstrap for
+ * deployments where the gitignored data/ dir starts empty: it never touches the
+ * unreliable /search API and never creates anything (unlike setup-workspace.mjs).
+ */
+async function cmdResolveWorkspace() {
+  const hub = hubId();
+  if (!hub) {
+    throw new Error(
+      'No Hub pinned. Set NOTION_PARENT_PAGE_ID or config/notion-hub.json ({"hubPageId": "..."}).',
+    );
+  }
+  const kids = await listChildren(hub);
+  const cache = readCache();
+  cache.__hub = hub;
+  const dbs = [];
+  for (const b of kids) {
+    if (b.type === "child_database") {
+      const title = b.child_database?.title ?? "";
+      if (title) {
+        cache[title] = b.id;
+        dbs.push(title);
+      }
+    }
+    if (b.type === "child_page" && b.child_page?.title === "Knowledge Base") {
+      cache.__knowledgeBase = b.id;
+    }
+  }
+  writeCache(cache);
+  let dashboard = "not found";
+  try {
+    dashboard = (await resolveDashboard()).pageId;
+  } catch {
+    /* no Dashboard page yet; setup-workspace.mjs builds it */
+  }
+  console.log(`Hub: ${hub}`);
+  console.log(`Databases: ${dbs.join(", ") || "none"}`);
+  console.log(`Knowledge Base: ${cache.__knowledgeBase ?? "not found"}`);
+  console.log(`Dashboard: ${dashboard}`);
+  console.log("Ids cached to data/notion-ids.json");
+}
+
 const COMMANDS = {
   "resolve-db": cmdResolveDb,
+  "resolve-workspace": cmdResolveWorkspace,
   "query-recent": cmdQueryRecent,
   log: cmdLog,
   append: cmdAppend,
