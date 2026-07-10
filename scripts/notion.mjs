@@ -376,7 +376,8 @@ async function resolveRelationIds(def, value) {
       `No row titled "${ref}" in the related database. Have: ${titles.join(", ") || "(no rows)"}`,
     );
   }
-  if (rows.length > 1) throw new Error(`Ambiguous: multiple rows titled "${ref}" in the related database.`);
+  if (rows.length > 1)
+    throw new Error(`Ambiguous: multiple rows titled "${ref}" in the related database.`);
   return [{ id: rows[0].id }];
 }
 
