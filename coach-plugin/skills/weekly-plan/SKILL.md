@@ -11,6 +11,7 @@ Produce a realistic plan for the coming week that moves the user toward their go
 
 - Read `PERSONAL.md`: goals (in priority order), days and times available, session length, equipment, injuries, coaching style.
 - Pull recent Notion Workout Log rows with `node scripts/notion.mjs query-recent --db "Workout Log"` to gauge recent volume, what was trained, and recovery state. Read current Goals.
+- If Google Calendar is configured (calendar-sync skill), list the target week's events with `node scripts/calendar.mjs list --from <monday> --to <sunday>` and treat them as hard constraints when picking session days and times.
 - When you read an existing program or week page, disambiguate by context, not just by name. Pages often share a name like "Week 1". Check the parent page title to confirm you have the right program (gym versus calisthenics, for example). If still ambiguous, ask which one in a single short question rather than guessing.
 
 ## 2. Design the plan
@@ -24,4 +25,5 @@ Produce a realistic plan for the coming week that moves the user toward their go
 ## 3. Save and present
 
 - Write the plan to Notion as a page (or a set of planned entries) under the training workspace, dated for the week, so it persists and the recommend-workout skill can reference it. Follow the notion-formatting skill so the page is clean and structured (a callout for the week's priority, a table of the days). If the workspace does not exist, run setup-notion first.
+- If Google Calendar is configured, create one calendar event per planned session in the same turn (calendar-sync skill): focus in the title, key lifts in the description, default 30-minute popup reminder. This is what puts the plan on the user's phone without Telegram.
 - Present a concise summary in chat: day by day, the focus and the key lifts or sessions. Keep it scannable on a phone, and add one line of motivation tied to the user's main goal.

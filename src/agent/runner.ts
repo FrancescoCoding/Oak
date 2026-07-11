@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { type SDKUserMessage, query } from "@anthropic-ai/claude-agent-sdk";
+import { googleCalendarConfigured } from "../calendar/status.js";
 import { config } from "../config.js";
 import { type Attachment, buildUserContent } from "../media/attachments.js";
 import { notionConfigured } from "../notion/status.js";
@@ -121,6 +122,12 @@ function buildSessionContext(): string {
   } else {
     parts.push("Notion not configured (no persistence)");
   }
+
+  parts.push(
+    googleCalendarConfigured()
+      ? "Google Calendar configured (scripts/calendar.mjs; sync planned sessions per the calendar-sync skill)"
+      : "Google Calendar not configured (no calendar sync; reminders rely on the Telegram scheduler)",
+  );
 
   const personalPath = path.join(PROJECT_ROOT, "PERSONAL.md");
   if (!fs.existsSync(personalPath)) {

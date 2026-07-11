@@ -28,7 +28,9 @@ on top of a plan you already have.
 - Get a weekly plan and progress reports written back to Notion as clean, structured pages.
 - Look up real exercises (muscles, equipment, demo images) from a free database.
 - Nutrition and macro guidance tied to your goals.
-- Proactive reminders (morning nudge, Sunday plan, plus any custom reminder you ask for).
+- Proactive reminders (morning nudge, Sunday plan, plus any custom reminder you ask for), and
+  optionally put planned sessions on your **Google Calendar** with native phone reminders. See
+  [docs/google-calendar-architecture.md](./docs/google-calendar-architecture.md).
 
 **Notion is the agent's knowledge base.** The agent creates the Notion databases for you
 (Programs, Goals, Body Stats, Workout Log) plus a Dashboard and Knowledge Base page, fills them
@@ -82,10 +84,18 @@ while the running agent is personalised to you. More in [docs/architecture.md](.
    cp .env.example .env
    cp PERSONAL.md.example PERSONAL.md
    ```
-   Fill in `.env` (tokens, your Telegram id, Notion token) and `PERSONAL.md` (your goals). Every
-   setting is documented in [docs/configuration.md](./docs/configuration.md).
+   Fill in `.env` (tokens, your Telegram id, Notion token, optional Google Calendar credentials)
+   and `PERSONAL.md` (your goals). Every setting is documented in
+   [docs/configuration.md](./docs/configuration.md).
 
-6. **Run it.**
+6. **(Optional) Connect Google Calendar.** Lets the coach put planned sessions on your calendar
+   with native phone reminders. Create an OAuth "Desktop app" client in
+   [Google Cloud Console](https://console.cloud.google.com/apis/credentials) (enable the
+   Calendar API, add yourself as a test user), put its client id/secret in `.env`, then authorise
+   once with `node --env-file=.env scripts/google-auth.mjs`. Skip this and calendar sync just
+   stays off. See [docs/google-calendar-architecture.md](./docs/google-calendar-architecture.md).
+
+7. **Run it.**
    ```bash
    npm run dev          # live development, loads .env automatically
    # or always-on in Docker:
@@ -123,6 +133,7 @@ CI runs lint, build, and tests on every push and pull request.
 | [Architecture](./docs/architecture.md) | Request flow, source layout, scripts, persistence. |
 | [Deployment](./docs/deployment.md) | Always-on vs scale-to-zero; Cloud Run and Azure examples. |
 | [Notion architecture](./docs/notion-architecture.md) | Workspace schema, build order, API patterns, Dashboard. |
+| [Google Calendar architecture](./docs/google-calendar-architecture.md) | OAuth setup, calendar sync, phone reminders for planned sessions. |
 | [Customization](./docs/customization.md) | `PERSONAL.md`, `CLAUDE.md`, skills, personas, Notion schema. |
 
 ## Make it yours / contributing

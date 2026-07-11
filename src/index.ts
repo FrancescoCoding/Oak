@@ -3,6 +3,7 @@ import { Bot } from "grammy";
 import { pickPersonality } from "./agent/personalities.js";
 import { classifyQuery, runAgent } from "./agent/runner.js";
 import { clearSession, evictExpired, getSession } from "./agent/sessions.js";
+import { googleCalendarConfigured } from "./calendar/status.js";
 import { toPlainText, toTelegramHtml } from "./channel/format.js";
 import { registerBot, sendMessage, splitMessage } from "./channel/notify.js";
 import { isAllowed } from "./channel/permissions.js";
@@ -332,7 +333,8 @@ setInterval(evictExpired, 15 * 60 * 1000);
     await registerTelegramWebhook(bot);
     botRunning = true;
     console.log(
-      `${config.agentName} is running (webhook mode). Notion ${notionConfigured() ? "enabled" : "disabled"}.`,
+      `${config.agentName} is running (webhook mode). Notion ${notionConfigured() ? "enabled" : "disabled"}, ` +
+        `Google Calendar ${googleCalendarConfigured() ? "enabled" : "disabled"}.`,
     );
     // No online ping here: in scale-to-zero the instance may start cold for any
     // request, so a startup message would fire on every cold start.
@@ -343,7 +345,8 @@ setInterval(evictExpired, 15 * 60 * 1000);
   botRunning = true;
   warmupTranscriber();
   console.log(
-    `${config.agentName} is running (polling mode). Notion ${notionConfigured() ? "enabled" : "disabled"}.`,
+    `${config.agentName} is running (polling mode). Notion ${notionConfigured() ? "enabled" : "disabled"}, ` +
+      `Google Calendar ${googleCalendarConfigured() ? "enabled" : "disabled"}.`,
   );
   if (config.ownerChatId) {
     const ownerPersona = pickPersonality(config.ownerChatId);

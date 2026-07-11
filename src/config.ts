@@ -17,6 +17,17 @@ export const config = {
   notionToken: process.env.NOTION_TOKEN ?? "",
   notionParentPageId: process.env.NOTION_PARENT_PAGE_ID ?? "",
 
+  // Google Calendar. Optional: when absent, calendar features are disabled but
+  // the bot still runs. The OAuth client id/secret come from Google Cloud
+  // Console (Desktop app); the refresh token is minted once by
+  // `scripts/google-auth.mjs` and lives in data/google-token.json, or in
+  // GOOGLE_REFRESH_TOKEN for deployments backed by a secret store.
+  googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+  googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN ?? "",
+  googleTokenFile: process.env.GOOGLE_TOKEN_FILE ?? "./data/google-token.json",
+  googleCalendarId: process.env.GOOGLE_CALENDAR_ID ?? "",
+
   // Claude subscription auth. The agent always runs on the subscription token
   // from `claude setup-token` (sk-ant-oat01-...), never a metered API key. The
   // SDK reads it from the environment; we surface it here to validate at startup.

@@ -19,7 +19,7 @@ If a file named `PERSONAL.md` exists in the project root, read it at the start o
 
 ## Your Toolkit
 
-You have built-in tools (Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch) and a coaching plugin of skills. Notion is reached through its REST API, driven by the bundled `scripts/notion.mjs` and `scripts/setup-workspace.mjs` helpers (run via Bash). There is no Notion MCP server: the REST API does everything (rich blocks, tables, columns, database rows, page icons), so it is the single path for all Notion reads and writes.
+You have built-in tools (Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch) and a coaching plugin of skills. Notion is reached through its REST API, driven by the bundled `scripts/notion.mjs` and `scripts/setup-workspace.mjs` helpers (run via Bash). There is no Notion MCP server: the REST API does everything (rich blocks, tables, columns, database rows, page icons), so it is the single path for all Notion reads and writes. Google Calendar follows the same pattern: the bundled `scripts/calendar.mjs` helper wraps its REST API for all calendar reads and writes (see the calendar-sync skill and `docs/google-calendar-architecture.md`).
 
 ### Skills (invoked automatically when relevant)
 
@@ -30,6 +30,7 @@ You have built-in tools (Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearc
 | recommend-workout | The user asks what to train today or to start a session |
 | find-exercises | Look up real exercises by muscle, equipment, or level from a free database (alternatives, substitutes for an injury, instructions, demo image) |
 | weekly-plan | Build or refresh the training plan for the week and save it to Notion |
+| calendar-sync | Check Google Calendar availability before planning; create, move, or cancel calendar events for training sessions (with phone reminders) |
 | nutrition-advice | Food, macros, meals, and eating questions tied to their goals |
 | progress-report | Summarise trends, consistency, and personal records from the log |
 | notion-formatting | Read before writing any prose content to Notion, so pages are clean, structured, and scannable |
@@ -56,6 +57,8 @@ curl -s -X DELETE http://localhost:9130/tasks/<id>
 ```
 
 The current chat id is in the message header you receive (`[Telegram chat <id> ...]`). Use it as `chatId` so reminders go to the right place. When the user asks for a reminder, confirm the time and what it should say, then create it and tell them it is set.
+
+If the user prefers not to rely on Telegram notifications, Google Calendar is the alternative: planned sessions become calendar events with native popup reminders (calendar-sync skill), so their phone nudges them without any scheduler. When a user asks for session reminders and calendar sync is configured, prefer calendar events for session-shaped reminders; keep the Telegram scheduler for conversational nudges (a morning check-in that expects a reply).
 
 Note on deployment: live reminder creation through this control plane only fires by itself when the agent runs always-on (polling mode). In a scale-to-zero deployment (webhook mode), reminders are driven by an external scheduler, so a new reminder is recorded but the user needs to add the matching scheduler job. If you cannot reach `localhost:9130`, you are in such a deployment: record the request, then tell the user plainly that they need to add the corresponding scheduled job, rather than claiming it is live.
 
