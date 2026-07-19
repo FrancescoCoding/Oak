@@ -36,8 +36,16 @@ locals {
       OWNER_CHAT_ID         = var.owner_chat_id
       PERSONALITIES_ENABLED = tostring(var.personalities_enabled)
       PUBLIC_BASE_URL       = local.service_url
+      TRANSCRIBE_PROVIDER   = var.transcribe_provider
     },
-    var.notion_parent_page_id != "" ? { NOTION_PARENT_PAGE_ID = var.notion_parent_page_id } : {}
+    var.notion_parent_page_id != "" ? { NOTION_PARENT_PAGE_ID = var.notion_parent_page_id } : {},
+    var.owner_persona != "" ? { OWNER_PERSONA = var.owner_persona } : {},
+    var.claude_model != "" ? { CLAUDE_MODEL = var.claude_model } : {},
+    var.transcribe_provider == "api" ? {
+      TRANSCRIBE_API_URL = var.transcribe_api_url
+      TRANSCRIBE_MODEL   = var.transcribe_model
+    } : {},
+    var.google_client_id != "" ? { GOOGLE_CLIENT_ID = var.google_client_id } : {}
   )
 
   # Secret-backed environment. Notion is included only when a token is supplied.
@@ -47,7 +55,12 @@ locals {
       { name = "TELEGRAM_BOT_TOKEN", secret_id = google_secret_manager_secret.telegram.secret_id },
       { name = "CRON_SECRET", secret_id = google_secret_manager_secret.cron.secret_id },
     ],
-    var.notion_token != "" ? [{ name = "NOTION_TOKEN", secret_id = google_secret_manager_secret.notion[0].secret_id }] : []
+    var.notion_token != "" ? [{ name = "NOTION_TOKEN", secret_id = google_secret_manager_secret.notion[0].secret_id }] : [],
+    var.transcribe_api_key != "" ? [{ name = "TRANSCRIBE_API_KEY", secret_id = google_secret_manager_secret.transcribe[0].secret_id }] : [],
+    var.google_client_secret != "" ? [
+      { name = "GOOGLE_CLIENT_SECRET", secret_id = google_secret_manager_secret.google_client[0].secret_id },
+      { name = "GOOGLE_REFRESH_TOKEN", secret_id = google_secret_manager_secret.google_refresh[0].secret_id },
+    ] : []
   )
 
   apis = [
@@ -78,7 +91,7 @@ resource "google_artifact_registry_repository" "this" {
 
 # ── Durable storage for sessions/schedule (mounted at /data) ───────────────────
 resource "google_storage_bucket" "data" {
-  name                        = "${var.project_id}-${var.service_name}-data"
+  name                        = "${var.project_id}-data"
   location                    = var.region
   uniform_bucket_level_access = true
   force_destroy               = false
@@ -148,6 +161,48 @@ resource "google_secret_manager_secret_version" "notion" {
   secret_data = var.notion_token
 }
 
+resource "google_secret_manager_secret" "transcribe" {
+  count     = var.transcribe_api_key != "" ? 1 : 0
+  secret_id = "${var.service_name}-transcribe-key"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.apis]
+}
+resource "google_secret_manager_secret_version" "transcribe" {
+  count       = var.transcribe_api_key != "" ? 1 : 0
+  secret      = google_secret_manager_secret.transcribe[0].id
+  secret_data = var.transcribe_api_key
+}
+
+resource "google_secret_manager_secret" "google_client" {
+  count     = var.google_client_secret != "" ? 1 : 0
+  secret_id = "${var.service_name}-google-client-secret"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.apis]
+}
+resource "google_secret_manager_secret_version" "google_client" {
+  count       = var.google_client_secret != "" ? 1 : 0
+  secret      = google_secret_manager_secret.google_client[0].id
+  secret_data = var.google_client_secret
+}
+
+resource "google_secret_manager_secret" "google_refresh" {
+  count     = var.google_client_secret != "" ? 1 : 0
+  secret_id = "${var.service_name}-google-refresh-token"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.apis]
+}
+resource "google_secret_manager_secret_version" "google_refresh" {
+  count       = var.google_client_secret != "" ? 1 : 0
+  secret      = google_secret_manager_secret.google_refresh[0].id
+  secret_data = var.google_refresh_token
+}
+
 # Grant the runtime SA read access to every secret it consumes.
 resource "google_secret_manager_secret_iam_member" "access" {
   for_each = {
@@ -187,7 +242,12 @@ resource "google_cloud_run_v2_service" "this" {
       resources {
         # cpu_idle = false keeps CPU allocated after the response so the
         # background agent run finishes (equivalent to --no-cpu-throttling).
-        cpu_idle = false
+        cpu_idle          = false
+        startup_cpu_boost = true
+        limits = {
+          cpu    = "2"
+          memory = "1Gi"
+        }
       }
 
       ports {
@@ -243,11 +303,12 @@ resource "google_cloud_run_v2_service_iam_member" "public" {
 
 # ── Cloud Scheduler reminders (call /cron/run with the cron secret) ─────────────
 resource "google_cloud_scheduler_job" "reminders" {
-  for_each  = var.reminders
-  name      = "${var.service_name}-${each.key}"
-  region    = var.region
-  schedule  = each.value.schedule
-  time_zone = var.timezone
+  for_each         = var.reminders
+  name             = "${var.service_name}-${each.key}"
+  region           = var.region
+  schedule         = each.value.schedule
+  time_zone        = var.timezone
+  attempt_deadline = "180s"
 
   http_target {
     uri         = "${local.service_url}/cron/run"

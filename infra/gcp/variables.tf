@@ -60,6 +60,40 @@ variable "personalities_enabled" {
   default     = false
 }
 
+variable "owner_persona" {
+  type        = string
+  description = "Optional persona overlay for the owner (requires personalities_enabled)."
+  default     = ""
+}
+
+variable "claude_model" {
+  type        = string
+  description = "Optional Claude model override (e.g. claude-sonnet-5). Empty uses the SDK default."
+  default     = ""
+}
+
+variable "transcribe_provider" {
+  type        = string
+  description = "Voice note transcription: 'api' (recommended on scale-to-zero), 'local', or 'off'."
+  default     = "api"
+}
+
+variable "transcribe_api_url" {
+  type    = string
+  default = "https://api.openai.com/v1/audio/transcriptions"
+}
+
+variable "transcribe_model" {
+  type    = string
+  default = "gpt-4o-transcribe"
+}
+
+variable "google_client_id" {
+  type        = string
+  description = "Optional Google OAuth client id for Calendar sync. Empty disables calendar."
+  default     = ""
+}
+
 # ── Secrets (stored in Secret Manager) ────────────────────────────────────────
 variable "claude_oauth_token" {
   type        = string
@@ -84,6 +118,27 @@ variable "cron_secret" {
   type        = string
   description = "Shared secret Cloud Scheduler sends to /cron/run. Use a long random value."
   sensitive   = true
+}
+
+variable "transcribe_api_key" {
+  type        = string
+  description = "API key for transcribe_provider=api (e.g. OpenAI). Empty skips the secret."
+  sensitive   = true
+  default     = ""
+}
+
+variable "google_client_secret" {
+  type        = string
+  description = "Google OAuth client secret for Calendar sync. Empty skips calendar secrets."
+  sensitive   = true
+  default     = ""
+}
+
+variable "google_refresh_token" {
+  type        = string
+  description = "Google OAuth refresh token from `node scripts/google-auth.mjs`."
+  sensitive   = true
+  default     = ""
 }
 
 variable "reminders" {
