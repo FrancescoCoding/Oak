@@ -23,7 +23,9 @@ on top of a plan you already have.
 - Chat with your coach in plain language on Telegram, optionally in a configurable persona.
 - Send photos and PDFs (a meal, a food label, a gym machine, a progress picture) and it sees them.
 - Send a voice note: it is transcribed locally and answered like text (the first voice note
-  downloads the Whisper model, ~150 MB, so it is slow once; needs ~1 GB free RAM).
+  downloads the Whisper model, ~150 MB, so it is slow once; needs ~1 GB free RAM). Prefer an
+  API instead? Set `TRANSCRIBE_PROVIDER=api` to use an OpenAI-compatible endpoint
+  (tiny memory footprint, needs a key; see [configuration](./docs/configuration.md)).
 - Log workouts conversationally, saved to Notion.
 - Ask "what should I train today?" and get a session based on your goals and recent training.
 - Get a weekly plan and progress reports written back to Notion as clean, structured pages.
