@@ -24,6 +24,9 @@ data/
 *-sessions.json
 *-schedule.json
 
+# Eval run transcripts
+evals/results/
+
 # Local caches written by skills/scripts at runtime
 **/.cache/
 

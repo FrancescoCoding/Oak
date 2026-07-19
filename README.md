@@ -121,6 +121,10 @@ npm test         # build, then run the unit tests (node --test)
 
 CI runs lint, build, and tests on every push and pull request.
 
+Behavioral evals for the coach persona (tone, safety boundaries, honesty) live in
+[`evals/`](./evals/): `python evals/run_evals.py` runs them against the real agent on
+your subscription. Run them locally before a release; see [evals/README.md](./evals/README.md).
+
 ## Commands
 
 - `/start`, `/help`: what the coach can do.
