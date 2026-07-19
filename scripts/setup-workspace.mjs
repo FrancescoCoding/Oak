@@ -42,8 +42,8 @@ const opt = (name) => {
   return i !== -1 ? args[i + 1] : undefined;
 };
 
-// Hub resolution order: --hub flag, NOTION_PARENT_PAGE_ID, then the committable
-// pin file config/notion-hub.json ({ "hubPageId": "..." }) so a fresh deployment
+// Hub resolution order: --hub flag, NOTION_PARENT_PAGE_ID, then the gitignored local
+// pin file config/notion-hub.json ({ "hubPageId": "..." }, copy the .example) so a fresh deployment
 // with an empty data/ mount can still rebuild against the right workspace.
 function pinnedHub() {
   try {

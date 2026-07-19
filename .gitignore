@@ -12,6 +12,13 @@ knowledge/*
 !knowledge/README.md
 !knowledge/.gitkeep
 
+# Your Notion Hub page pin (points at your private workspace). Copy from the .example.
+config/notion-hub.json
+
+# Internal planning scratch notes, never shipped
+docs/*-plan.md
+docs/ideas/
+
 # Runtime data: persisted sessions and scheduled tasks
 data/
 *-sessions.json

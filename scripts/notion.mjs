@@ -127,8 +127,8 @@ const normId = (id) => (id ?? "").replace(/-/g, "").toLowerCase();
 // scoping name resolution to the Hub's children means a shared integration that
 // can see *other* Notion spaces (e.g. a demo workspace) can never resolve to a
 // stranger's database of the same name. Resolution order: id cache, then the
-// NOTION_PARENT_PAGE_ID env var, then config/notion-hub.json (a committable pin
-// that survives deployments where the gitignored data/ cache starts empty).
+// NOTION_PARENT_PAGE_ID env var, then config/notion-hub.json (a gitignored local
+// pin, copied from its .example, that survives restarts where the data/ cache starts empty).
 const HUB_PIN_FILE = path.resolve(process.cwd(), "config", "notion-hub.json");
 function hubId() {
   const cache = readCache();

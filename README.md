@@ -22,7 +22,8 @@ on top of a plan you already have.
 
 - Chat with your coach in plain language on Telegram, optionally in a configurable persona.
 - Send photos and PDFs (a meal, a food label, a gym machine, a progress picture) and it sees them.
-- Send a voice note: it is transcribed locally and answered like text.
+- Send a voice note: it is transcribed locally and answered like text (the first voice note
+  downloads the Whisper model, ~150 MB, so it is slow once; needs ~1 GB free RAM).
 - Log workouts conversationally, saved to Notion.
 - Ask "what should I train today?" and get a session based on your goals and recent training.
 - Get a weekly plan and progress reports written back to Notion as clean, structured pages.
@@ -67,8 +68,10 @@ while the running agent is personalised to you. More in [docs/architecture.md](.
    `/newbot`, and copy the HTTP API token. Then message [@userinfobot](https://t.me/userinfobot)
    to get your own numeric user id.
 
-3. **Authenticate against your Claude subscription.**
+3. **Authenticate against your Claude subscription.** This needs the Claude Code CLI and a
+   **paid** Claude plan (Pro or above; the free tier cannot generate a token).
    ```bash
+   npm install -g @anthropic-ai/claude-code   # if you don't have the `claude` CLI yet
    claude setup-token
    ```
    Copy the `sk-ant-oat01-...` token into `CLAUDE_CODE_OAUTH_TOKEN`. The agent runs on your
@@ -77,7 +80,9 @@ while the running agent is personalised to you. More in [docs/architecture.md](.
 4. **Create a Notion integration.** At
    [notion.com/my-integrations](https://www.notion.com/my-integrations), create an internal
    integration and copy its token. In Notion, open the page you want the coach to work in and
-   share it with your integration (Share menu). Copy that page id to pin it.
+   share it with your integration (Share menu). Copy that page's id (the 32-char hex at the end
+   of its URL) into `NOTION_PARENT_PAGE_ID` in `.env`, or into `config/notion-hub.json` (copy
+   `config/notion-hub.json.example`); either pins the workspace.
 
 5. **Configure.**
    ```bash
@@ -101,8 +106,8 @@ while the running agent is personalised to you. More in [docs/architecture.md](.
    # or always-on in Docker:
    docker compose up -d
    ```
-   Message your bot `/start`, then "set up my Notion" to build your workspace. Then just talk
-   to it. Only one instance may poll a bot token at once, so do not run local and a deployed
+   Message your bot `/start`, then `/setup` (or just say "set up my Notion", same thing) to
+   build your workspace. Then just talk to it. Only one instance may poll a bot token at once, so do not run local and a deployed
    copy on the same token (you will get a Telegram 409).
 
 ### Development
