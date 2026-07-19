@@ -40,3 +40,4 @@ crash.log
 
 # Azure deployment parameters (hold secrets)
 infra/azure/main.parameters.json
+__pycache__/

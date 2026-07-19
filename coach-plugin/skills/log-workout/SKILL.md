@@ -68,6 +68,15 @@ If the Workout Log database does not exist, run the setup-notion skill first, th
 
 If the user flags an injury or pain while logging (not normal training soreness), note it and gently raise it: suggest backing off and seeing a professional if it is sharp, persistent, or worrying.
 
-## 3. Confirm and encourage
+## 3. Keep the Dashboard current
+
+Do both of these in the same turn, before replying:
+
+1. Run `node scripts/notion.mjs sync-dashboard --now <YYYY-MM-DD from the Telegram header>` to re-derive the This Week, Goals, and Body Stats tiles from the databases.
+2. Refresh the **Next Session** tile. The session just logged is no longer "next": work out what actually comes next from the weekly plan (or the active program's schedule) and rewrite the tile with `node scripts/notion.mjs refresh-tile` (tile ids in `data/notion-ids.json` under `__dashboard.columns`; content format in the notion-formatting skill). If no plan tells you what is next, put a short honest placeholder ("Next session not planned yet, ask me to plan the week") rather than leaving the completed session showing.
+
+`sync-dashboard` alone is not enough: it does not touch the prose tiles, and a Next Session tile still showing the workout that was just logged is exactly the staleness to avoid.
+
+## 4. Confirm and encourage
 
 Reply with a short confirmation of what you logged and a genuine, specific bit of encouragement or a note on progress if you can see it (for example "that is 5kg up on last week's squat"). Keep it to a sentence or two.
