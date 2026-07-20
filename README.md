@@ -46,6 +46,32 @@ Notion that it then draws on. See [docs/notion-architecture.md](./docs/notion-ar
 
 For the full picture see [docs/capabilities.md](./docs/capabilities.md).
 
+## What you need
+
+Before you start, make sure you have:
+
+- **A paid Claude plan (Pro or above).** Oak runs on your Claude subscription through the
+  Claude Agent SDK, authenticated with a token from `claude setup-token`. There is no
+  metered per-token API billing, but the free tier cannot generate a subscription token,
+  so a paid plan is required.
+- **A Telegram bot (free).** Created in one minute by messaging
+  [@BotFather](https://t.me/BotFather). You will also need your own numeric Telegram user
+  id (from [@userinfobot](https://t.me/userinfobot)) so the bot only answers you.
+- **A Notion account (the free plan is enough).** Oak talks to Notion through an internal
+  integration, which every Notion plan supports, including the free personal plan. You do
+  not need a paid workspace, and you do not need to build anything yourself: the agent
+  creates and maintains the whole workspace (databases, Dashboard, Knowledge Base) from
+  one page you share with the integration.
+- **Somewhere to run it.** Your own machine (Node 22+, or Docker) is fine for trying it
+  out. For always-on coaching without a machine running at home, deploy scale-to-zero to
+  Google Cloud Run or Azure Container Apps; ready-made configs are in
+  [`infra/`](./infra/). See [Hosting options](#hosting-options).
+- **Optional: a Google account** if you want planned sessions on your calendar with
+  native phone reminders (one-time OAuth setup, quickstart step 6).
+
+No fitness tracker, no third-party services, no database to run: state lives in Notion
+and in a small gitignored `data/` folder.
+
 ## How it works
 
 ```
@@ -127,6 +153,34 @@ Behavioral evals for the coach persona (tone, safety boundaries, honesty) live i
 [`evals/`](./evals/): `python evals/run_evals.py` runs them against the real agent on
 your subscription. Run them locally before a release; see [evals/README.md](./evals/README.md).
 
+## Hosting options
+
+Oak can run anywhere Node or a container runs. Three supported paths, from simplest to
+most hands-off:
+
+| Option | Cost profile | Reminders | Best for |
+|---|---|---|---|
+| **Local (dev or Docker)** | Free (your machine) | Built-in scheduler, fires live | Trying it out, tinkering |
+| **Google Cloud Run** | Scale-to-zero, typically pennies/month | Cloud Scheduler jobs | Set-and-forget hosting |
+| **Azure Container Apps** | Scale-to-zero | Azure cron jobs | Same, on Azure |
+
+- **Local.** `npm run dev` for development, `docker compose up -d` for an always-on
+  container. The built-in scheduler (morning nudge, Sunday weekly plan, custom reminders
+  you ask for in chat) fires by itself because the process is always running.
+- **Google Cloud Run.** Terraform config in [`infra/gcp/`](./infra/gcp/): builds the
+  container, wires secrets, and runs the bot in webhook mode so it scales to zero between
+  messages. Proactive reminders are driven by Cloud Scheduler jobs instead of the
+  in-process scheduler.
+- **Azure Container Apps.** Bicep template in [`infra/azure/`](./infra/azure/), same
+  webhook + external scheduler model.
+
+One rule regardless of host: **only one instance may poll a bot token at once.** Running
+a local copy and a deployed copy on the same token gets you a Telegram 409. Use a second
+BotFather bot for local testing if you have a deployed instance.
+
+Full details, including the polling vs webhook trade-off and how scheduled reminders work
+in each mode, are in [docs/deployment.md](./docs/deployment.md).
+
 ## Commands
 
 - `/start`, `/help`: what the coach can do.
@@ -152,6 +206,43 @@ your subscription. Run them locally before a release; see [evals/README.md](./ev
 This is MIT licensed. Fork it, change the persona, swap the Notion schema, add skills. Keep
 `src/` organised by domain and pair new features with focused skills. PRs that keep it generic
 and useful to others are welcome. Note: no em dashes in the codebase, please.
+
+## FAQ
+
+**Does this need a paid Notion account?**
+No. Internal integrations work on Notion's free plan. The agent builds and maintains the
+entire workspace itself; you just create the integration and share one page with it.
+
+**Does it cost anything beyond my Claude subscription?**
+Not necessarily. Telegram bots are free, Notion's free plan is enough, and local Whisper
+transcription runs on your machine. Cloud hosting scale-to-zero is typically pennies per
+month; API transcription (if you opt into `TRANSCRIBE_PROVIDER=api`) is billed by that
+provider.
+
+**Can I use an Anthropic API key instead of a subscription?**
+Not currently: the bot authenticates with a subscription token from `claude setup-token`
+and validates it at startup. A metered API-key mode would be a welcome contribution.
+
+**Do voice notes leave my machine?**
+Not by default. Transcription runs locally with Whisper via Transformers.js (first voice
+note downloads the ~150 MB model; needs about 1 GB of free RAM). Set
+`TRANSCRIBE_PROVIDER=api` only if you prefer a hosted OpenAI-compatible endpoint.
+
+**Does it work with fitness trackers (Garmin, Apple Watch, Whoop)?**
+Not out of the box. Oak logs what you tell it and what it reads from Notion. Tracker
+integrations would make a good contribution; the skills system in `coach-plugin/` is the
+place to add one.
+
+**Can several people use one deployment?**
+It is built as a personal coach: one user, one `PERSONAL.md`, one Notion workspace,
+answering only your Telegram id. For a partner or friend, run a second instance with its
+own bot token and Notion page.
+
+**Is my training data private?**
+Your goals and stats live in `PERSONAL.md` (gitignored) and your own Notion workspace;
+nothing is sent anywhere except to Anthropic (the model), Notion, Telegram, and, if you
+enable them, Google Calendar and the transcription API. The bot also redacts
+secret-looking values from anything it echoes.
 
 ## Data and acknowledgements
 
