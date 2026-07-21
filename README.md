@@ -8,7 +8,7 @@
 A personal fitness coach, motivator, and food advisor you talk to on **Telegram**. It runs on
 the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview), keeps your training
 log in **Notion**, recommends what to train, builds your weekly plan, transcribes your voice
-notes, looks at your meal photos, and sends you reminders.
+notes, looks at your meal photos, and sends you reminders. [See demo workspace](https://franwbu.notion.site/oak-demo-workspace)
 
 It runs on your **Claude subscription** (no metered API key), so you are not paying per token
 on top of a plan you already have.
