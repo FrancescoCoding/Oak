@@ -7,6 +7,7 @@ import { config } from "../config.js";
 import { type Attachment, buildUserContent } from "../media/attachments.js";
 import { notionConfigured } from "../notion/status.js";
 import { personaSystemPrompt, pickPersonality } from "./personalities.js";
+import { type RunRecord, appendRunRecord, summariseModelUsage, summariseUsage } from "./runlog.js";
 import { clearSession, getSession, setSession } from "./sessions.js";
 
 /**
@@ -188,9 +189,52 @@ export async function runAgent(opts: {
     userMessage.slice(0, 100),
   );
 
+  // The scheduler is the only caller that labels a run this way, and it is the
+  // one signal available here to tell a proactive run from a chat message.
+  const source = userLabel === "scheduled task" ? "scheduled" : "telegram";
+
   for (let attempt = 0; ; attempt++) {
     let resultText = "";
     let sessionId: string | undefined;
+    // Observability state for this attempt. Everything here is best-effort: it
+    // is read only when writing the run record, never by the coaching path.
+    const startedAt = Date.now();
+    const toolCounts: Record<string, number> = {};
+    let resultMessage: any;
+
+    /** Fire-and-forget run record. Never awaited, never allowed to throw. */
+    const logRun = (isError: boolean, errorMessage?: string) => {
+      try {
+        const r = resultMessage;
+        const record: RunRecord = {
+          ts: new Date().toISOString(),
+          chatId,
+          userLabel,
+          source,
+          modelTier,
+          model,
+          sessionId,
+          subtype: r?.subtype ?? (isError ? "exception" : undefined),
+          isError,
+          numTurns: r?.num_turns,
+          durationMs: r?.duration_ms ?? Date.now() - startedAt,
+          durationApiMs: r?.duration_api_ms,
+          totalCostUsd: r?.total_cost_usd ?? undefined,
+          usage: summariseUsage(r?.usage),
+          modelUsage: summariseModelUsage(r?.modelUsage),
+          toolCounts,
+          permissionDenials: Array.isArray(r?.permission_denials)
+            ? r.permission_denials.length
+            : undefined,
+          attempt: attempt + 1,
+          outcome: errorMessage ?? resultText,
+        };
+        void appendRunRecord(record);
+      } catch (logErr) {
+        console.warn("[agent] run logging failed:", (logErr as Error).message);
+      }
+    };
+
     try {
       for await (const message of query({
         prompt: singleMessage(prompt, attachments),
@@ -235,6 +279,16 @@ export async function runAgent(opts: {
           if (sessionId) setSession(chatId, sessionId);
         }
 
+        if (message.type === "assistant") {
+          // Which tools the run actually reached for, counted from the stream so
+          // the record does not depend on any SDK summary field.
+          for (const block of (message as any).message?.content ?? []) {
+            if (block?.type === "tool_use" && typeof block.name === "string") {
+              toolCounts[block.name] = (toolCounts[block.name] ?? 0) + 1;
+            }
+          }
+        }
+
         if (
           onProgress &&
           message.type === "assistant" &&
@@ -250,15 +304,24 @@ export async function runAgent(opts: {
           if (text) onProgress(text);
         }
 
+        if (message.type === "result") {
+          // Keep the whole message: the metric fields (turns, durations, cost,
+          // usage, denials) are only available here, on both success and error
+          // subtypes. The reply itself still comes from .result alone.
+          resultMessage = message;
+        }
+
         if ("result" in message) {
           resultText = (message as any).result ?? "";
         }
       }
 
+      logRun(Boolean(resultMessage?.is_error));
       return { text: resultText, sessionId };
     } catch (err: any) {
       const msg = err?.message ?? String(err);
       console.error("[agent] query() threw:", msg);
+      logRun(true, msg);
 
       // Subscription usage limit hit. Return a clear message rather than throwing.
       // No restart needed: the next query() spawns a fresh subprocess, so once the

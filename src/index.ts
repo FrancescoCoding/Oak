@@ -1,6 +1,7 @@
 import http from "node:http";
 import { Bot } from "grammy";
 import { pickPersonality } from "./agent/personalities.js";
+import { aggregateStats, readRunRecords } from "./agent/runlog.js";
 import { classifyQuery, runAgent } from "./agent/runner.js";
 import { clearSession, evictExpired, getSession } from "./agent/sessions.js";
 import { googleCalendarConfigured } from "./calendar/status.js";
@@ -83,6 +84,57 @@ const COMMAND_PROMPTS: Record<string, string> = {
   today: "What should I train today? Base it on my goals, my plan, and recent logs.",
   progress: "Give me a progress report from my logged workouts.",
 };
+
+// ─── /stats ──────────────────────────────────────────────────────────
+//
+// Deterministic, no LLM call: read the run log and summarise the last 7 days.
+// The point is that the numbers come from recorded runs, not from the model's
+// recollection, so they cannot be wrong in an interesting way.
+
+const STATS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+function formatSeconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function buildStatsReply(): string {
+  const stats = aggregateStats(readRunRecords(Date.now() - STATS_WINDOW_MS));
+  if (stats.runs === 0) {
+    return "No agent runs recorded in the last 7 days yet. Send me something and this fills up.";
+  }
+
+  const lines = [
+    "**Last 7 days**",
+    `Runs: ${stats.runs} (${stats.errors} errored), ${stats.totalTurns} turns`,
+    `Latency: p50 ${formatSeconds(stats.p50DurationMs)}, p95 ${formatSeconds(stats.p95DurationMs)}`,
+  ];
+
+  const sources = Object.entries(stats.bySource)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, count]) => `${name} ${count}`)
+    .join(", ");
+  if (sources) lines.push(`Source: ${sources}`);
+
+  const top = stats.topTools.slice(0, 3);
+  if (top.length > 0) {
+    const tools = top.map((t) => `${t.name} ${Math.round(t.share * 100)}%`).join(", ");
+    lines.push(`Top tools: ${tools}`);
+  }
+
+  // Subscription auth does not price a run, so a zero total is expected there
+  // and saying "$0.00" would read as a measurement rather than an absence.
+  if (stats.totalCostUsd > 0) {
+    const absent =
+      stats.runsWithoutCost > 0
+        ? ` (no cost reported on ${stats.runsWithoutCost} runs, subscription)`
+        : "";
+    lines.push(`Cost: $${stats.totalCostUsd.toFixed(2)}${absent}`);
+  } else {
+    lines.push("Cost: subscription (no per-run cost reported)");
+  }
+
+  return lines.join("\n");
+}
 
 // ─── Message handling ────────────────────────────────────────────────
 
@@ -216,6 +268,20 @@ bot.on("message", async (ctx) => {
   const userLabel = ctx.from?.username ? `@${ctx.from.username}` : `user ${userId}`;
   let text = ctx.message.text ?? ctx.message.caption ?? "";
 
+  // Send a reply as Telegram HTML, falling back to plain text if Telegram rejects
+  // the entities. All outbound text is scrubbed for secrets first. Defined before
+  // command handling so the built-in commands answer through the same safe path.
+  const replyTo = async (out: string) => {
+    const safe = redactSecrets(out);
+    for (const chunk of splitMessage(safe, 4096)) {
+      try {
+        await ctx.reply(toTelegramHtml(chunk), { parse_mode: "HTML" });
+      } catch {
+        await ctx.reply(toPlainText(chunk));
+      }
+    }
+  };
+
   // Map a leading slash command to its prompt or built-in action.
   if (text.startsWith("/")) {
     const cmd = text.slice(1).split(/\s+/)[0].split("@")[0].toLowerCase();
@@ -224,7 +290,13 @@ bot.on("message", async (ctx) => {
     // /new clears the conversation so the next message starts fresh.
     if (cmd === "new" || cmd === "reset") {
       clearSession(chatId);
-      await ctx.reply("Started a fresh session. Previous context is cleared.");
+      await replyTo("Started a fresh session. Previous context is cleared.");
+      return;
+    }
+
+    // /stats answers from the run log alone, with no agent call behind it.
+    if (cmd === "stats") {
+      await replyTo(buildStatsReply());
       return;
     }
 
@@ -261,19 +333,6 @@ bot.on("message", async (ctx) => {
   }
 
   if (!text.trim() && attachments.length === 0) return;
-
-  // Send a reply as Telegram HTML, falling back to plain text if Telegram rejects
-  // the entities. All outbound text is scrubbed for secrets first.
-  const replyTo = async (out: string) => {
-    const safe = redactSecrets(out);
-    for (const chunk of splitMessage(safe, 4096)) {
-      try {
-        await ctx.reply(toTelegramHtml(chunk), { parse_mode: "HTML" });
-      } catch {
-        await ctx.reply(toPlainText(chunk));
-      }
-    }
-  };
 
   await handle({
     chatId,

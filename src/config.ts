@@ -75,6 +75,9 @@ export const config = {
   // Storage
   sessionFile: process.env.SESSION_FILE ?? "./data/sessions.json",
   scheduleFile: process.env.SCHEDULE_FILE ?? "./data/schedule.json",
+  // One JSONL line per agent run (metrics, tool counts, outcome sample). Read
+  // back by /stats. See docs/observability.md.
+  runLogFile: process.env.RUN_LOG_FILE ?? "./data/agent-runs.jsonl",
   sessionTtlHours: Number.parseInt(process.env.SESSION_TTL_HOURS ?? "12", 10),
 
   // Transport. "polling" runs an always-on long-polling loop (simplest for local
