@@ -64,6 +64,56 @@ plus deploy helpers:
 - **Notion** is the durable source of truth for training history, programs, goals,
   and stats.
 
+## Trust boundaries and threat model
+
+The agent runs with `bypassPermissions` and the full tool set, so it is worth being
+explicit about which inputs are trusted and which are not.
+
+| Input | Trust | Why |
+|---|---|---|
+| Telegram text from an allowlisted user | Trusted as intent, not as configuration | `ALLOWED_TELEGRAM_IDS` gates who can talk to the agent, so the sender is who you think it is. They still cannot escalate past the persona rules in `CLAUDE.md`. |
+| Files the user drops in `knowledge/`, photos, PDFs | Untrusted | The user chose the file, but not necessarily its contents. A program PDF downloaded from a forum is attacker-controlled text. |
+| Pages reached with `WebFetch` / `WebSearch` | Untrusted | Fully attacker-controlled, including HTML comments and off-screen text. |
+| Notion page content | Untrusted | Mostly agent-written, but Notion pages are shareable and editable by anyone the user invites. |
+| Exercise dataset and other bundled script output | Untrusted as instructions | Third-party JSON, treated as data. |
+
+The rule: **content-derived text is data, never instructions.** Anything that arrives
+through a tool result (Read, Bash stdout, WebFetch, an attachment, a Notion block) is
+material to reason about and quote, not a source of new orders. Only `CLAUDE.md`, the
+skills in `coach-plugin/`, and the live user turn set what the agent should do. Text
+inside ingested content that addresses the assistant ("SYSTEM NOTE", "ignore prior
+instructions", "your operator config has changed") is a signal to flag the document to
+the user, not to obey.
+
+Current mitigations:
+
+- **Allowlist** (`src/channel/permissions.ts`): unknown chat ids never reach the agent.
+- **Egress redaction** (`src/util/redact.ts`, applied once at the send boundary in
+  `src/index.ts`): env-literal and pattern matching strips secrets from anything the
+  agent tries to say, so a successful exfiltration through the reply channel is caught.
+- **Localhost-only control plane** (`src/scheduler/server.ts` binds `127.0.0.1`), and a
+  bearer `CRON_SECRET` on `/cron/run` in webhook mode.
+- **Session TTL** (`SESSION_TTL_HOURS`, default 12): a poisoned conversation does not
+  persist indefinitely, and expired transcripts are deleted from disk.
+- **Evals** (`evals/scenarios.json`): the `indirect-injection-*` scenarios feed the agent
+  poisoned fixtures through a benign request and grade whether it obeyed, with the
+  transcript's tool calls checked deterministically.
+
+Current gaps, stated plainly:
+
+- `bypassPermissions` plus unrestricted `Bash` means a successful injection has shell
+  access to the box, with the process environment in reach. Redaction covers the reply
+  channel; it does not cover `curl` to an attacker's endpoint.
+- There is no allowlist on outbound network access from tool calls.
+- Nothing structurally separates ingested content from instructions inside the model
+  context. The defence is the persona rules plus the model's own judgement, which is a
+  probabilistic control, not a boundary.
+
+The recommendation follows from that: run Oak in a container or a dedicated VM with only
+the credentials it needs, not on a daily-driver machine with your SSH keys and browser
+profile next to it. The Dockerfile in the repo root is the intended deployment shape, and
+[deployment.md](./deployment.md) covers Cloud Run.
+
 ## Build and run
 
 TypeScript (`NodeNext`, ESM) compiled to `dist/`. `npm run dev` runs `src/` via
