@@ -15,7 +15,7 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "pretest": "tsc",
-    "test": "node --test scripts/*.test.mjs tests/*.test.mjs"
+    "test": "node --experimental-test-module-mocks --test scripts/*.test.mjs tests/*.test.mjs"
   },
   "overrides": {
     "adm-zip": "^0.6.0"
