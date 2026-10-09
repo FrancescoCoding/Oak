@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { mock, test } from "node:test";
+import type { ScheduledTask } from "../dist/scheduler/scheduler.js";
 
 // The scheduler is the only place the agent talks to the user unprompted, so the
 // two side effects it owns (runAgent, sendMessage) are mocked and recorded.
@@ -30,13 +31,16 @@ mock.module("../dist/config.js", {
   },
 });
 
-const agentCalls = [];
-const sent = [];
-let agentBehaviour = () => ({ text: "session ready" });
+type AgentOpts = { chatId: string; userMessage: string };
+type AgentBehaviour = (opts: AgentOpts) => { text: string };
+
+const agentCalls: AgentOpts[] = [];
+const sent: { chatId: string; text: string }[] = [];
+let agentBehaviour: AgentBehaviour = () => ({ text: "session ready" });
 
 mock.module("../dist/agent/runner.js", {
   namedExports: {
-    runAgent: async (opts) => {
+    runAgent: async (opts: AgentOpts) => {
       agentCalls.push(opts);
       return agentBehaviour(opts);
     },
@@ -45,14 +49,23 @@ mock.module("../dist/agent/runner.js", {
 
 mock.module("../dist/channel/notify.js", {
   namedExports: {
-    sendMessage: async (chatId, text) => {
+    sendMessage: async (chatId: string, text: string) => {
       sent.push({ chatId, text });
     },
   },
 });
 
 let instance = 0;
-async function loadScheduler(opts = {}) {
+interface LoadOptions {
+  mode?: string;
+  ownerChatId?: string;
+  seed?: ScheduledTask[];
+  agent?: AgentBehaviour;
+}
+
+async function loadScheduler(
+  opts: LoadOptions = {},
+): Promise<typeof import("../dist/scheduler/scheduler.js")> {
   scheduleFile = path.join(TMP_DIR, `schedule-${++instance}.json`);
   mode = opts.mode ?? "webhook";
   ownerChatId = opts.ownerChatId ?? "";
@@ -63,7 +76,7 @@ async function loadScheduler(opts = {}) {
   return import(`../dist/scheduler/scheduler.js?instance=${instance}`);
 }
 
-const task = (over = {}) => ({
+const task = (over: Partial<ScheduledTask> = {}): ScheduledTask => ({
   id: "morning",
   name: "Morning session nudge",
   cron: "0 8 * * *",
@@ -143,7 +156,7 @@ test("addTask persists the task and replaces one with the same id", async () => 
   scheduler.addTask(task({ prompt: "Changed prompt" }));
 
   assert.equal(scheduler.listTasks().length, 1);
-  assert.equal(scheduler.getTask("morning").prompt, "Changed prompt");
+  assert.equal(scheduler.getTask("morning")!.prompt, "Changed prompt");
   assert.equal(JSON.parse(fs.readFileSync(scheduleFile, "utf-8"))[0].prompt, "Changed prompt");
 });
 

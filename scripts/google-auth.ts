@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * google-auth.mjs: one-time Google Calendar authorisation.
+ * google-auth.ts: one-time Google Calendar authorisation.
  *
  * Run manually during setup (not by the agent):
  *
- *   node --env-file=.env scripts/google-auth.mjs
+ *   node --env-file=.env scripts/google-auth.ts
  *
  * Uses the OAuth2 loopback flow for installed apps: starts a throwaway HTTP
  * server on 127.0.0.1, prints the consent URL for you to open, receives the
  * redirect with the authorisation code, exchanges it for a refresh token, and
- * writes data/google-token.json (gitignored). scripts/calendar.mjs then mints
+ * writes data/google-token.json (gitignored). scripts/calendar.ts then mints
  * short-lived access tokens from it transparently.
  *
  * Prerequisites (once, in Google Cloud Console):
@@ -25,12 +25,13 @@
  */
 import fs from "node:fs";
 import http from "node:http";
+import type { AddressInfo } from "node:net";
 import path from "node:path";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 // Full calendar scope (not .events) so the agent can also create a dedicated
-// "Training" calendar via `calendar.mjs use-calendar --create`.
+// "Training" calendar via `calendar.ts use-calendar --create`.
 const SCOPE = "https://www.googleapis.com/auth/calendar";
 const TOKEN_FILE = path.resolve(
   process.cwd(),
@@ -41,14 +42,14 @@ if (!CLIENT_ID || !CLIENT_SECRET) {
   console.error(
     "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set. Create a Desktop-app " +
       "OAuth client in Google Cloud Console, add both to .env, then re-run with:\n" +
-      "  node --env-file=.env scripts/google-auth.mjs",
+      "  node --env-file=.env scripts/google-auth.ts",
   );
   process.exit(1);
 }
 
 const server = http.createServer();
 server.listen(0, "127.0.0.1", () => {
-  const { port } = server.address();
+  const { port } = server.address() as AddressInfo;
   const redirectUri = `http://127.0.0.1:${port}`;
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.search = new URLSearchParams({
@@ -67,7 +68,7 @@ server.listen(0, "127.0.0.1", () => {
   console.log("\nWaiting for Google to redirect back...");
 
   server.on("request", async (req, res) => {
-    const reqUrl = new URL(req.url, redirectUri);
+    const reqUrl = new URL(req.url!, redirectUri);
     const code = reqUrl.searchParams.get("code");
     const error = reqUrl.searchParams.get("error");
     if (!code && !error) {
@@ -87,21 +88,21 @@ server.listen(0, "127.0.0.1", () => {
       process.exit(1);
     }
     try {
-      await exchange(code, redirectUri);
+      await exchange(code!, redirectUri);
     } catch (err) {
-      console.error(err.message);
+      console.error((err as Error).message);
       process.exit(1);
     }
   });
 });
 
-async function exchange(code, redirectUri) {
+async function exchange(code: string, redirectUri: string) {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id: CLIENT_ID!,
+      client_secret: CLIENT_SECRET!,
       code,
       redirect_uri: redirectUri,
       grant_type: "authorization_code",
@@ -127,7 +128,7 @@ async function exchange(code, redirectUri) {
     ),
   );
   console.log(`\nRefresh token saved to ${path.relative(process.cwd(), TOKEN_FILE)}.`);
-  console.log("Google Calendar is ready. Try: node scripts/calendar.mjs status");
+  console.log("Google Calendar is ready. Try: node scripts/calendar.ts status");
   console.log(
     "\nDeploying to a host without this file? Store the refresh token as the " +
       "GOOGLE_REFRESH_TOKEN secret instead (it is the refresh_token field in that file).",

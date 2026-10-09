@@ -12,13 +12,17 @@ change is to keep it generic, reliable, and useful to anyone who clones it.
 
 ## Code conventions
 
-- Node >= 22, TypeScript, ESM. `src/` is organised by domain (`agent/`, `media/`,
+- Node >= 22.18, TypeScript, ESM. `src/` is organised by domain (`agent/`, `media/`,
   `scheduler/`, `calendar/`). Put new code in the domain it belongs to; do not grow
   `index.ts`.
 - Biome is the formatter and linter. Run `npm run lint` before pushing; CI enforces it.
 - No em dashes anywhere (code, docs, prose). Use commas, parentheses, or full stops.
-- Helpers that talk to external APIs live in `scripts/` as dependency-free `.mjs` files
-  (see `notion.mjs`, `calendar.mjs`) so the agent can drive them via Bash.
+- Helpers that talk to external APIs live in `scripts/` as dependency-free `.ts` files
+  (see `notion.ts`, `calendar.ts`) so the agent can drive them via Bash. They run
+  directly under Node's built-in type stripping with no build step, so stick to
+  erasable syntax (no `enum`, `namespace`, or parameter properties) and import
+  relative files with their `.ts` extension. `npm run typecheck` checks them (after
+  `npm run build`, since the tests type-check against `dist/`).
 
 ## Features and skills
 
@@ -26,13 +30,13 @@ change is to keep it generic, reliable, and useful to anyone who clones it.
   plus a row in the skills table in `CLAUDE.md`. Keep the two in sync.
 - If a skill references a script command, the command must exist. Docs never describe
   flags that are not implemented.
-- Anything touching Notion goes through `scripts/notion.mjs`; anything touching Google
-  Calendar goes through `scripts/calendar.mjs`. No new direct API clients.
+- Anything touching Notion goes through `scripts/notion.ts`; anything touching Google
+  Calendar goes through `scripts/calendar.ts`. No new direct API clients.
 
 ## Tests and docs
 
 - Pair changes with tests where the logic is testable (`npm test`; node:test files live
-  in `tests/` and `scripts/*.test.mjs`).
+  in `tests/` and `scripts/*.test.ts`).
 - Update the relevant doc in `docs/` in the same PR: `configuration.md` for new env
   vars, `deployment.md` for infra changes. Mirror infra changes in both `infra/gcp/`
   and `infra/azure/` where applicable.

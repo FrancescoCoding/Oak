@@ -20,8 +20,8 @@ On the first message of a new conversation, check that `PERSONAL.md` has real go
 
   ```bash
   # Last 3 sessions overall, or for a specific Focus you are about to train
-  node scripts/notion.mjs query-recent --db "Workout Log" --limit 3
-  node scripts/notion.mjs query-recent --db "Workout Log" --focus Push --limit 3
+  node scripts/notion.ts query-recent --db "Workout Log" --limit 3
+  node scripts/notion.ts query-recent --db "Workout Log" --focus Push --limit 3
   ```
 
   Use the returned loads and RPE as the reference point for today's prescription. The helper is one call and already sorted by date. Check the current week's plan if one exists.

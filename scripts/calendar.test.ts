@@ -7,7 +7,7 @@ import {
   parseReminders,
   resolveWindow,
   toEventTime,
-} from "./calendar.mjs";
+} from "./calendar.ts";
 
 // ─── arg parsing ───────────────────────────────────────────────────────────────
 

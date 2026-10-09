@@ -22,9 +22,9 @@ page with the integration and tell you its name, find it, and pass it as `--hub`
 Run the builder via Bash:
 
 ```bash
-node scripts/setup-workspace.mjs
+node scripts/setup-workspace.ts
 # or, if the Hub id is not in the environment:
-node scripts/setup-workspace.mjs --hub <pageId>
+node scripts/setup-workspace.ts --hub <pageId>
 ```
 
 It builds in the strict order the relations require (Programs, Goals, Body Stats,

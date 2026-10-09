@@ -10,7 +10,7 @@ import {
   renderThisWeekTile,
   startOfWeekUTC,
   validateValue,
-} from "./notion.mjs";
+} from "./notion.ts";
 
 // ─── inline rich text ─────────────────────────────────────────────────────────
 
@@ -31,7 +31,7 @@ test("parseInline: **bold** becomes a bold annotation without asterisks", () => 
     rt.map((n) => n.text.content),
     ["lift ", "heavy", " today"],
   );
-  assert.equal(rt[1].annotations.bold, true);
+  assert.equal(rt[1].annotations!.bold, true);
   // No literal asterisks leak into any node.
   assert.ok(rt.every((n) => !n.text.content.includes("*")));
 });
@@ -39,19 +39,19 @@ test("parseInline: **bold** becomes a bold annotation without asterisks", () => 
 test("parseInline: _italic_ becomes an italic annotation", () => {
   const rt = parseInline("be _consistent_");
   assert.equal(rt[1].text.content, "consistent");
-  assert.equal(rt[1].annotations.italic, true);
+  assert.equal(rt[1].annotations!.italic, true);
 });
 
 test("parseInline: `code` becomes a code annotation", () => {
-  const rt = parseInline("run `notion.mjs log`");
-  assert.equal(rt[1].text.content, "notion.mjs log");
-  assert.equal(rt[1].annotations.code, true);
+  const rt = parseInline("run `notion.ts log`");
+  assert.equal(rt[1].text.content, "notion.ts log");
+  assert.equal(rt[1].annotations!.code, true);
 });
 
 test("parseInline: [label](url) becomes a link", () => {
   const rt = parseInline("see [the log](https://example.com/x)");
   assert.equal(rt[1].text.content, "the log");
-  assert.equal(rt[1].text.link.url, "https://example.com/x");
+  assert.equal(rt[1].text.link!.url, "https://example.com/x");
 });
 
 test("parseInline: multiple spans on one line keep their order", () => {
@@ -60,9 +60,9 @@ test("parseInline: multiple spans on one line keep their order", () => {
     rt.map((n) => n.text.content),
     ["a", " and ", "b", " and ", "c"],
   );
-  assert.equal(rt[0].annotations.bold, true);
-  assert.equal(rt[2].annotations.italic, true);
-  assert.equal(rt[4].annotations.code, true);
+  assert.equal(rt[0].annotations!.bold, true);
+  assert.equal(rt[2].annotations!.italic, true);
+  assert.equal(rt[4].annotations!.code, true);
 });
 
 // ─── block conversion ──────────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ test("markdownToBlocks: callout with an unknown color falls back to default", ()
 });
 
 test("tile renderers carry their canonical, distinct colors", () => {
-  const color = (md) => markdownToBlocks(md)[0].callout.color;
+  const color = (md: string) => markdownToBlocks(md)[0].callout.color;
   assert.equal(color(renderThisWeekTile([])), "gray_background");
   assert.equal(color(renderGoalsTile([])), "brown_background");
   assert.equal(color(renderBodyStatsTile(null)), "red_background");
@@ -141,12 +141,12 @@ test("markdownToBlocks: column layout produces a column_list with two columns", 
 
 test("buildPropertyValue: coerces by schema type", () => {
   assert.equal(buildPropertyValue("number", "60").number, 60);
-  assert.equal(buildPropertyValue("select", "Active").select.name, "Active");
+  assert.equal(buildPropertyValue("select", "Active").select!.name, "Active");
   assert.deepEqual(
-    buildPropertyValue("multi_select", "Chest, Triceps").multi_select.map((s) => s.name),
+    buildPropertyValue("multi_select", "Chest, Triceps").multi_select!.map((s) => s.name),
     ["Chest", "Triceps"],
   );
-  assert.equal(buildPropertyValue("date", "2026-06-23").date.start, "2026-06-23");
+  assert.equal(buildPropertyValue("date", "2026-06-23").date!.start, "2026-06-23");
   assert.equal(buildPropertyValue("checkbox", "yes").checkbox, true);
 });
 

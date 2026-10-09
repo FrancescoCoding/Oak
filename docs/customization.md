@@ -27,7 +27,7 @@ instructions. The `description` is what triggers the skill, so make it specific.
 Add a new skill by creating a folder with a `SKILL.md`; the SDK discovers it
 automatically (`skills: "all"`). For deterministic compute, pair a skill with a
 small Node CLI in `scripts/` and call it via Bash (see `find-exercises` +
-`scripts/exercise-db.mjs` as the template).
+`scripts/exercise-db.ts` as the template).
 
 ## Personas
 
@@ -52,7 +52,7 @@ ready").
 
 ## Notion schema
 
-The workspace schema is defined in `scripts/setup-workspace.mjs` and documented in
+The workspace schema is defined in `scripts/setup-workspace.ts` and documented in
 [notion-architecture.md](./notion-architecture.md). Change property names, add a
 database, or restyle the Dashboard there; ids are discovered and cached, never
 hardcoded, so your changes stay portable.

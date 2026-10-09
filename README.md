@@ -62,7 +62,7 @@ Before you start, make sure you have:
   not need a paid workspace, and you do not need to build anything yourself: the agent
   creates and maintains the whole workspace (databases, Dashboard, Knowledge Base) from
   one page you share with the integration.
-- **Somewhere to run it.** Your own machine (Node 22+, or Docker) is fine for trying it
+- **Somewhere to run it.** Your own machine (Node 22.18+, or Docker) is fine for trying it
   out. For always-on coaching without a machine running at home, deploy scale-to-zero to
   Google Cloud Run or Azure Container Apps; ready-made configs are in
   [`infra/`](./infra/). See [Hosting options](#hosting-options).
@@ -77,7 +77,7 @@ and in a small gitignored `data/` folder.
 ```
 Telegram  <->  grammy bot (src/index.ts)  <->  Claude Agent SDK (src/agent/runner.ts)
                      |                                    |
-                scheduler (croner)               Notion (REST API via scripts/notion.mjs)
+                scheduler (croner)               Notion (REST API via scripts/notion.ts)
                 reminders + weekly plan          your training log
 ```
 
@@ -125,7 +125,7 @@ while the running agent is personalised to you. More in [docs/architecture.md](.
    with native phone reminders. Create an OAuth "Desktop app" client in
    [Google Cloud Console](https://console.cloud.google.com/apis/credentials) (enable the
    Calendar API, add yourself as a test user), put its client id/secret in `.env`, then authorise
-   once with `node --env-file=.env scripts/google-auth.mjs`. Skip this and calendar sync just
+   once with `node --env-file=.env scripts/google-auth.ts`. Skip this and calendar sync just
    stays off. See [docs/google-calendar-architecture.md](./docs/google-calendar-architecture.md).
 
 7. **Run it.**

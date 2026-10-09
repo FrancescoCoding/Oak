@@ -5,7 +5,7 @@ description: Read and write the user's Google Calendar. Use to check availabilit
 
 # Sync training with Google Calendar
 
-The user's calendar is where their real life lives. Use it in two directions: read it so plans fit around actual commitments, and write planned sessions to it so training shows up on their phone with a native reminder. All access goes through `scripts/calendar.mjs` (run via Bash).
+The user's calendar is where their real life lives. Use it in two directions: read it so plans fit around actual commitments, and write planned sessions to it so training shows up on their phone with a native reminder. All access goes through `scripts/calendar.ts` (run via Bash).
 
 ## When this applies
 
@@ -13,38 +13,38 @@ The user's calendar is where their real life lives. Use it in two directions: re
 - The user asks to schedule a session, move one, cancel one, or asks what their week looks like.
 - A session was recommended for a specific time today or tomorrow: offer to put it on the calendar (or just do it if they have said they always want that).
 
-If the helper reports Google Calendar is not configured, say so once in plain words ("Calendar sync isn't set up; run `node scripts/google-auth.mjs` when you want sessions on your Google Calendar") and carry on coaching without it. Never fake a sync.
+If the helper reports Google Calendar is not configured, say so once in plain words ("Calendar sync isn't set up; run `node scripts/google-auth.ts` when you want sessions on your Google Calendar") and carry on coaching without it. Never fake a sync.
 
 ## Commands
 
 ```bash
 # Is it set up, and which calendar is in use?
-node scripts/calendar.mjs status
+node scripts/calendar.ts status
 
 # Busy blocks for a window (defaults to 7 days from --from). Dates come from
 # the Telegram header, never computed internally.
-node scripts/calendar.mjs list --from 2026-07-13 --to 2026-07-20
+node scripts/calendar.ts list --from 2026-07-13 --to 2026-07-20
 
 # Create a session. Times without an offset are in the user's TIMEZONE.
 # Reminders default to a popup 30 minutes before; override with --reminders
 # "popup:60", "popup:30,email:120", "default", or "none".
-node scripts/calendar.mjs create --title "Push A (Bench focus)" \
+node scripts/calendar.ts create --title "Push A (Bench focus)" \
   --start "2026-07-13T18:00" --end "2026-07-13T19:00" \
   --description "Bench 5x5 @62.5kg, OHP 3x8, dips, laterals"
 
 # A stable weekly slot as one recurring event instead of many single ones.
-node scripts/calendar.mjs create --title "Training" \
+node scripts/calendar.ts create --title "Training" \
   --start "2026-07-13T18:00" --end "2026-07-13T19:00" \
   --recurrence "RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR"
 
 # Move or edit (get the id from `list`), or cancel.
-node scripts/calendar.mjs update --id <eventId> --start "2026-07-14T18:00" --end "2026-07-14T19:00"
-node scripts/calendar.mjs delete --id <eventId>
+node scripts/calendar.ts update --id <eventId> --start "2026-07-14T18:00" --end "2026-07-14T19:00"
+node scripts/calendar.ts delete --id <eventId>
 
 # Calendar management: keep training on a dedicated calendar if the user
 # prefers (creates it when missing and remembers the choice).
-node scripts/calendar.mjs list-calendars
-node scripts/calendar.mjs use-calendar --name "Training" --create
+node scripts/calendar.ts list-calendars
+node scripts/calendar.ts use-calendar --name "Training" --create
 ```
 
 ## How to use it well

@@ -6,9 +6,9 @@ import { config } from "../config.js";
  * Google Calendar access.
  *
  * The agent talks to Google Calendar exclusively through its REST API, driven
- * by the bundled `scripts/calendar.mjs` helper (run via Bash), mirroring how
+ * by the bundled `scripts/calendar.ts` helper (run via Bash), mirroring how
  * Notion is integrated. Auth is OAuth2: a refresh token minted once by
- * `scripts/google-auth.mjs` (stored in data/google-token.json, or provided as
+ * `scripts/google-auth.ts` (stored in data/google-token.json, or provided as
  * GOOGLE_REFRESH_TOKEN in deployments), exchanged for short-lived access
  * tokens on demand.
  *

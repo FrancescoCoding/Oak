@@ -29,7 +29,7 @@ cron_secret        = "GENERATE_A_LONG_RANDOM_VALUE"
 # transcribe_api_key = "sk-..."
 
 # Optional Google Calendar sync (see docs/google-calendar-architecture.md).
-# Run `node --env-file=.env scripts/google-auth.mjs` locally first to get the refresh token.
+# Run `node --env-file=.env scripts/google-auth.ts` locally first to get the refresh token.
 # google_client_id     = "1234-abc.apps.googleusercontent.com"
 # google_client_secret = "GOCSPX-..."
 # google_refresh_token = "1//..."

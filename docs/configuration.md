@@ -35,11 +35,11 @@ coach plan around your real commitments.
 |---|---|
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth "Desktop app" client credentials from Google Cloud Console (enable the Calendar API and add yourself as a consent-screen test user first). Blank disables calendar sync; the bot still runs. |
 | `GOOGLE_REFRESH_TOKEN` | Optional. For deployments without the token file: the `refresh_token` value from `data/google-token.json`, stored as a secret. |
-| `GOOGLE_CALENDAR_ID` | Optional. Which calendar to write to. Defaults to the calendar chosen with `calendar.mjs use-calendar`, then `primary`. |
+| `GOOGLE_CALENDAR_ID` | Optional. Which calendar to write to. Defaults to the calendar chosen with `calendar.ts use-calendar`, then `primary`. |
 | `GOOGLE_TOKEN_FILE` | Optional. Path of the token store, default `./data/google-token.json` (point it at a mounted volume on scale-to-zero hosts). |
 
 After setting the client id and secret, authorise once with
-`node --env-file=.env scripts/google-auth.mjs`. See
+`node --env-file=.env scripts/google-auth.ts`. See
 [google-calendar-architecture.md](./google-calendar-architecture.md).
 
 ## Agent identity and behaviour

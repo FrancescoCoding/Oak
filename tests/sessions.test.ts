@@ -27,7 +27,7 @@ mock.module("../dist/config.js", {
 });
 
 let instance = 0;
-async function loadSessions(opts = {}) {
+async function loadSessions(opts: { ttlHours?: number; seed?: unknown } = {}) {
   sessionFile = path.join(TMP_DIR, `sessions-${++instance}.json`);
   sessionTtlHours = opts.ttlHours ?? 12;
   if (opts.seed) fs.writeFileSync(sessionFile, JSON.stringify(opts.seed));

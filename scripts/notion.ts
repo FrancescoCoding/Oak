@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * notion.mjs: the coach's Notion REST helper.
+ * notion.ts: the coach's Notion REST helper.
  *
  * Notion is reached entirely through the REST API (there is no MCP server): the
  * API does everything (rich blocks, tables, columns, database rows, page icons),
@@ -24,15 +24,15 @@
  * the default-view setup still has to be done once by hand in Notion.
  *
  * Usage:
- *   node scripts/notion.mjs resolve-workspace        # rebuild the id cache from the pinned Hub
- *   node scripts/notion.mjs resolve-db --name "Workout Log"
- *   node scripts/notion.mjs query-recent --db "Workout Log" --focus Push --limit 3
- *   node scripts/notion.mjs log --db "Workout Log" \
+ *   node scripts/notion.ts resolve-workspace        # rebuild the id cache from the pinned Hub
+ *   node scripts/notion.ts resolve-db --name "Workout Log"
+ *   node scripts/notion.ts query-recent --db "Workout Log" --focus Push --limit 3
+ *   node scripts/notion.ts log --db "Workout Log" \
  *        --set "Session=Push A" --set "Focus=Push" --set "Date=2026-06-23" \
  *        --set "RPE=8" --set "Exercises=Bench 5x5 @60kg; OHP 3x8 @40kg"
- *   node scripts/notion.mjs append --page <pageId> --md "# Heading\n> [!note] callout\n---\n- a\n- b"
- *   node scripts/notion.mjs append --page <pageId> --file plan.md
- *   node scripts/notion.mjs sync-dashboard --now 2026-06-30
+ *   node scripts/notion.ts append --page <pageId> --md "# Heading\n> [!note] callout\n---\n- a\n- b"
+ *   node scripts/notion.ts append --page <pageId> --file plan.md
+ *   node scripts/notion.ts sync-dashboard --now 2026-06-30
  *
  * Add --dry-run to `log` to validate and print the parsed row without writing it.
  */
@@ -47,24 +47,44 @@ const CACHE_FILE = path.resolve(process.cwd(), "data", "notion-ids.json");
 
 // Retry tuning for rate limits (429) and transient 5xx responses.
 const MAX_RETRIES = 5;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ─── arg parsing (supports repeated --set) ──────────────────────────────────
-function parseArgs(argv) {
-  const args = { set: [] };
+
+/** Parsed CLI flags. A bare flag with no value (e.g. --dry-run) parses as `true`. */
+type Args = {
+  set: string[];
+  name?: string;
+  db?: string;
+  focus?: string;
+  limit?: string;
+  page?: string;
+  parent?: string;
+  title?: string;
+  icon?: string;
+  md?: string;
+  file?: string;
+  tile?: string;
+  column?: string;
+  now?: string;
+  "dry-run"?: string | true;
+};
+
+function parseArgs(argv: string[]): Args {
+  const args: Args = { set: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) continue;
     const key = a.slice(2);
     const next = argv[i + 1];
     const val = next === undefined || next.startsWith("--") ? true : (i++, next);
-    if (key === "set") args.set.push(val);
-    else args[key] = val;
+    if (key === "set") args.set.push(val as string);
+    else (args as Record<string, unknown>)[key] = val;
   }
   return args;
 }
 
-async function notion(pathname, method, body) {
+async function notion(pathname: string, method?: string, body?: unknown): Promise<any> {
   if (!TOKEN) throw new Error("NOTION_TOKEN is not set. Notion is not configured.");
 
   for (let attempt = 0; ; attempt++) {
@@ -101,14 +121,32 @@ async function notion(pathname, method, body) {
 }
 
 // ─── id cache ────────────────────────────────────────────────────────────────
-function readCache() {
+
+/** Dashboard tile names, in the row order they appear on the page. */
+type TileName = (typeof TILE_ROWS)[number][number];
+
+/** Cached Dashboard ids: the page plus each tile's column (and the Row 1 column_list). */
+interface DashboardIds {
+  pageId: string;
+  columns: Partial<Record<TileName | "listId", string>>;
+}
+
+/** Shape of data/notion-ids.json: database name -> id, plus a few reserved keys. */
+interface IdCache {
+  __hub?: string;
+  __knowledgeBase?: string;
+  __dashboard?: DashboardIds;
+  [dbName: string]: string | DashboardIds | undefined;
+}
+
+function readCache(): IdCache {
   try {
     return JSON.parse(fs.readFileSync(CACHE_FILE, "utf8"));
   } catch {
     return {};
   }
 }
-function writeCache(cache) {
+function writeCache(cache: IdCache) {
   fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
   // Atomic write: a crash mid-write must not truncate the cache to invalid JSON
   // (which readCache would silently swallow as {}, losing every resolved id and
@@ -121,7 +159,7 @@ function writeCache(cache) {
 
 // ─── Hub scoping ─────────────────────────────────────────────────────────────
 // Notion ids compare equal with or without dashes and regardless of case.
-const normId = (id) => (id ?? "").replace(/-/g, "").toLowerCase();
+const normId = (id?: string) => (id ?? "").replace(/-/g, "").toLowerCase();
 
 // The pinned Hub (root) page. Every workspace object hangs directly off it, so
 // scoping name resolution to the Hub's children means a shared integration that
@@ -132,7 +170,7 @@ const normId = (id) => (id ?? "").replace(/-/g, "").toLowerCase();
 const HUB_PIN_FILE = path.resolve(process.cwd(), "config", "notion-hub.json");
 function hubId() {
   const cache = readCache();
-  let pinned;
+  let pinned: string | undefined;
   try {
     pinned = JSON.parse(fs.readFileSync(HUB_PIN_FILE, "utf8")).hubPageId;
   } catch {
@@ -142,9 +180,9 @@ function hubId() {
 }
 
 /** Paginated list of a block's (or page's) children. */
-async function listChildren(blockId) {
-  const out = [];
-  let cursor;
+async function listChildren(blockId: string): Promise<any[]> {
+  const out: any[] = [];
+  let cursor: string | undefined;
   do {
     const qs = cursor ? `?start_cursor=${cursor}` : "";
     const res = await notion(`/blocks/${blockId}/children${qs}`);
@@ -161,7 +199,7 @@ async function listChildren(blockId) {
  *  returns nothing for integration tokens (a fresh deployment with an empty
  *  data/ cache would then wrongly conclude the workspace is empty). Search is
  *  only used when no Hub is pinned at all. */
-async function resolveDbId(dbRef) {
+async function resolveDbId(dbRef: string | undefined): Promise<string> {
   if (!dbRef) throw new Error("--db is required (id or database name)");
   // A 32-hex (optionally dashed) string is already an id.
   if (/^[0-9a-f]{32}$/i.test(dbRef.replace(/-/g, ""))) return dbRef;
@@ -179,7 +217,7 @@ async function resolveDbId(dbRef) {
       if (hub && normId(db.parent?.page_id) !== hub) {
         throw new Error(`cached "${dbRef}" no longer lives under the Hub`);
       }
-      return cache[dbRef];
+      return cache[dbRef] as string;
     } catch {
       delete cache[dbRef];
       writeCache(cache);
@@ -187,7 +225,7 @@ async function resolveDbId(dbRef) {
   }
 
   const hub = hubId();
-  let candidates;
+  let candidates: { id: string; name: string }[];
   if (hub) {
     // Deterministic: enumerate the Hub's direct children. A child_database
     // block's id IS the database id.
@@ -199,9 +237,9 @@ async function resolveDbId(dbRef) {
       query: dbRef,
       filter: { value: "database", property: "object" },
     });
-    candidates = (found.results ?? []).map((r) => ({
+    candidates = (found.results ?? []).map((r: any) => ({
       id: r.id,
-      name: (r.title ?? []).map((t) => t.plain_text).join(""),
+      name: (r.title ?? []).map((t: any) => t.plain_text).join(""),
     }));
   }
 
@@ -211,7 +249,7 @@ async function resolveDbId(dbRef) {
   // risk showing the wrong workspace's data. Fail loud so the user repins/cleans.
   if (exact.length > 1) {
     throw new Error(
-      `Ambiguous: ${exact.length} databases named "${dbRef}" under the Hub. Run scripts/setup-workspace.mjs to repin ids, or unshare the duplicate in Notion.`,
+      `Ambiguous: ${exact.length} databases named "${dbRef}" under the Hub. Run scripts/setup-workspace.ts to repin ids, or unshare the duplicate in Notion.`,
     );
   }
 
@@ -221,7 +259,7 @@ async function resolveDbId(dbRef) {
   if (!match) {
     throw new Error(
       hub
-        ? `No database named "${dbRef}" found under the pinned Hub. Run setup-workspace.mjs, or confirm the integration is shared with the Hub page.`
+        ? `No database named "${dbRef}" found under the pinned Hub. Run setup-workspace.ts, or confirm the integration is shared with the Hub page.`
         : `No unambiguous database matching "${dbRef}". Set NOTION_PARENT_PAGE_ID (the Hub page id) so resolution can be scoped to your workspace.`,
     );
   }
@@ -233,16 +271,16 @@ async function resolveDbId(dbRef) {
 /**
  * Resolve the Dashboard page and its Row 1 tile columns, self-healing from the
  * pinned Hub when the cache is empty (fresh deployment) or stale (rebuilt page).
- * Mirrors captureRow1Columns in setup-workspace.mjs: the first column_list on
+ * Mirrors captureRow1Columns in setup-workspace.ts: the first column_list on
  * the Dashboard holds, in order, the This Week / Goals / Body Stats tiles.
  */
 const TILE_ROWS = [
   ["thisWeek", "goals", "bodyStats"],
   ["nextSession", "activeProgram"],
   ["nutrition", "quickCommands"],
-];
+] as const;
 
-async function resolveDashboard(force = false) {
+async function resolveDashboard(force = false): Promise<DashboardIds> {
   const cached = readCache().__dashboard;
   if (!force && cached?.pageId && cached?.columns?.thisWeek) {
     try {
@@ -256,24 +294,24 @@ async function resolveDashboard(force = false) {
   const hub = hubId();
   if (!hub) {
     throw new Error(
-      "No Dashboard cached and no Hub pinned. Set NOTION_PARENT_PAGE_ID or config/notion-hub.json, or run setup-workspace.mjs.",
+      "No Dashboard cached and no Hub pinned. Set NOTION_PARENT_PAGE_ID or config/notion-hub.json, or run setup-workspace.ts.",
     );
   }
   const page = (await listChildren(hub)).find(
     (b) => b.type === "child_page" && b.child_page?.title === "Dashboard",
   );
   if (!page) {
-    throw new Error("No Dashboard page found under the Hub. Run setup-workspace.mjs to build it.");
+    throw new Error("No Dashboard page found under the Hub. Run setup-workspace.ts to build it.");
   }
   const lists = (await listChildren(page.id)).filter((b) => b.type === "column_list");
-  const columns = { listId: lists[0]?.id };
+  const columns: DashboardIds["columns"] = { listId: lists[0]?.id };
   for (let r = 0; r < lists.length && r < TILE_ROWS.length; r++) {
-    const ids = (await listChildren(lists[r].id)).map((c) => c.id);
+    const ids: string[] = (await listChildren(lists[r].id)).map((c) => c.id);
     TILE_ROWS[r].forEach((name, i) => {
       if (ids[i]) columns[name] = ids[i];
     });
   }
-  const dash = { pageId: page.id, columns };
+  const dash: DashboardIds = { pageId: page.id, columns };
   const cache = readCache();
   cache.__dashboard = dash;
   writeCache(cache);
@@ -281,7 +319,7 @@ async function resolveDashboard(force = false) {
 }
 
 // ─── property value coercion based on the db schema ──────────────────────────
-function buildPropertyValue(type, raw) {
+function buildPropertyValue(type: string, raw: string) {
   switch (type) {
     case "title":
       return { title: [{ text: { content: raw } }] };
@@ -308,10 +346,10 @@ function buildPropertyValue(type, raw) {
 }
 
 /** The allowed option names for a select/multi_select/status property, else null. */
-function optionNames(def) {
-  if (def.type === "select") return (def.select?.options ?? []).map((o) => o.name);
-  if (def.type === "status") return (def.status?.options ?? []).map((o) => o.name);
-  if (def.type === "multi_select") return (def.multi_select?.options ?? []).map((o) => o.name);
+function optionNames(def: any): string[] | null {
+  if (def.type === "select") return (def.select?.options ?? []).map((o: any) => o.name);
+  if (def.type === "status") return (def.status?.options ?? []).map((o: any) => o.name);
+  if (def.type === "multi_select") return (def.multi_select?.options ?? []).map((o: any) => o.name);
   return null;
 }
 
@@ -322,7 +360,7 @@ function optionNames(def) {
  * silently creating a stray select option or logging an impossible number.
  * Pure (no I/O) so it is unit-testable; throws on the first problem.
  */
-function validateValue(name, def, value) {
+function validateValue(name: string, def: any, value: string) {
   const allowed = optionNames(def);
   if (allowed) {
     const given = def.type === "multi_select" ? value.split(",").map((v) => v.trim()) : [value];
@@ -351,7 +389,7 @@ function validateValue(name, def, value) {
  * title looked up in the related database (the title property's id is always
  * "title", so the filter works regardless of the property's display name).
  */
-async function resolveRelationIds(def, value) {
+async function resolveRelationIds(def: any, value: string): Promise<{ id: string }[]> {
   const ref = value.trim();
   if (!ref) return [];
   if (/^[0-9a-f]{32}$/i.test(ref.replace(/-/g, ""))) return [{ id: ref }];
@@ -367,9 +405,9 @@ async function resolveRelationIds(def, value) {
     // with an exact match (same pattern as the unknown-property message).
     const all = await notion(`/databases/${relDb}/query`, "POST", { page_size: 25 });
     const titles = (all.results ?? [])
-      .map((p) => {
-        const t = Object.values(p.properties ?? {}).find((v) => v.type === "title");
-        return (t?.title ?? []).map((x) => x.plain_text).join("");
+      .map((p: any) => {
+        const t: any = Object.values(p.properties ?? {}).find((v: any) => v.type === "title");
+        return (t?.title ?? []).map((x: any) => x.plain_text).join("");
       })
       .filter(Boolean);
     throw new Error(
@@ -381,10 +419,10 @@ async function resolveRelationIds(def, value) {
   return [{ id: rows[0].id }];
 }
 
-async function buildProperties(dbId, sets) {
+async function buildProperties(dbId: string, sets: string[]) {
   const db = await notion(`/databases/${dbId}`);
   const schema = db.properties ?? {};
-  const props = {};
+  const props: Record<string, unknown> = {};
   for (const pair of sets) {
     const idx = pair.indexOf("=");
     if (idx === -1) throw new Error(`--set must be "Name=value", got "${pair}"`);
@@ -411,7 +449,33 @@ async function buildProperties(dbId, sets) {
 // taken literally; bold (** / __) is matched before italic (* / _) so "**x**"
 // is not mistaken for two italics. Spans are non-nesting, which covers the
 // common cases (bold/italic/code/link inside a line) without a full parser.
-const INLINE_PATTERNS = [
+interface Annotations {
+  bold?: boolean;
+  italic?: boolean;
+  code?: boolean;
+}
+
+interface InlinePattern {
+  re: RegExp;
+  annotations?: Annotations;
+  link?: boolean;
+}
+
+/** A Notion rich_text node of type "text". */
+interface RichText {
+  type: "text";
+  text: { content: string; link?: { url: string } };
+  annotations?: Annotations;
+}
+
+/** A Notion block as built here: `type` names the key that holds its payload. */
+interface Block {
+  object: "block";
+  type: string;
+  [payload: string]: any;
+}
+
+const INLINE_PATTERNS: InlinePattern[] = [
   { re: /`([^`]+)`/, annotations: { code: true } },
   { re: /\[([^\]]+)\]\(([^)\s]+)\)/, link: true },
   { re: /\*\*([^*]+)\*\*/, annotations: { bold: true } },
@@ -420,21 +484,21 @@ const INLINE_PATTERNS = [
   { re: /_([^_]+)_/, annotations: { italic: true } },
 ];
 
-const plain = (content) => ({ type: "text", text: { content } });
+const plain = (content: string): RichText => ({ type: "text", text: { content } });
 
 /**
  * Parse a line of markdown into Notion rich_text objects, rendering inline
  * **bold**, _italic_, `code`, and [links](url) as annotations rather than
  * leaking literal asterisks/backticks into the page. Returns [] for empty input.
  */
-function parseInline(text) {
+function parseInline(text: string): RichText[] {
   if (!text) return [];
-  const out = [];
+  const out: RichText[] = [];
   let rest = text;
 
   while (rest.length) {
     // Find the earliest-matching span across all patterns.
-    let best = null;
+    let best: { pat: InlinePattern; m: RegExpExecArray } | null = null;
     for (const pat of INLINE_PATTERNS) {
       const m = pat.re.exec(rest);
       if (m && (best === null || m.index < best.m.index)) best = { pat, m };
@@ -457,7 +521,7 @@ function parseInline(text) {
 
 // Block-level rich text. Always returns at least one node so a block is never
 // created with empty rich_text where Notion expects content.
-function rt(text) {
+function rt(text: string): RichText[] {
   const parsed = parseInline(text);
   return parsed.length ? parsed : [plain(text ?? "")];
 }
@@ -487,7 +551,7 @@ const NOTION_COLORS = new Set([
 ]);
 
 /** Canonical, fixed background for each named Dashboard tile, so colors never
- * drift between refreshes. The render functions and setup-workspace.mjs both
+ * drift between refreshes. The render functions and setup-workspace.ts both
  * use these, and refresh-tile re-applies them. Keep the two files in sync. */
 const TILE_COLORS = {
   thisWeek: "gray_background",
@@ -497,15 +561,15 @@ const TILE_COLORS = {
 };
 
 /** Validate a Notion color, returning "default" for missing/unknown values. */
-function normalizeColor(color) {
+function normalizeColor(color?: string) {
   const c = (color ?? "").trim();
   return NOTION_COLORS.has(c) ? c : "default";
 }
 
 /** Minimal but useful converter: headings, callouts, dividers, lists, tables, paragraphs. */
-function markdownToBlocks(md) {
+function markdownToBlocks(md: string): Block[] {
   const lines = md.replace(/\\n/g, "\n").split("\n");
-  const blocks = [];
+  const blocks: Block[] = [];
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
@@ -525,7 +589,7 @@ function markdownToBlocks(md) {
     // Columns are separated by a line of "|||" and the block ends at ":::".
     if (trimmed === "::: columns" || trimmed === ":::columns") {
       i++;
-      const colSources = [[]];
+      const colSources: string[][] = [[]];
       while (i < lines.length && lines[i].trim() !== ":::") {
         if (lines[i].trim() === "|||") colSources.push([]);
         else colSources[colSources.length - 1].push(lines[i]);
@@ -593,7 +657,7 @@ function markdownToBlocks(md) {
 
     // Table: consecutive "| a | b |" lines (a separator row like |---|---| is skipped)
     if (/^\|.*\|$/.test(trimmed)) {
-      const rows = [];
+      const rows: string[][] = [];
       while (i < lines.length && /^\|.*\|$/.test(lines[i].trim())) {
         const cells = lines[i]
           .trim()
@@ -655,29 +719,34 @@ function markdownToBlocks(md) {
 
 // ─── reading rows + dashboard rendering ──────────────────────────────────────
 
+type PropValue = string | number;
+
 /** Read a Notion property value object into a plain string/number. */
-function readProp(v) {
+function readProp(v: any): PropValue {
   if (!v) return "";
-  if (v.type === "title") return (v.title ?? []).map((t) => t.plain_text).join("");
-  if (v.type === "rich_text") return (v.rich_text ?? []).map((t) => t.plain_text).join("");
+  if (v.type === "title") return (v.title ?? []).map((t: any) => t.plain_text).join("");
+  if (v.type === "rich_text") return (v.rich_text ?? []).map((t: any) => t.plain_text).join("");
   if (v.type === "select") return v.select?.name ?? "";
   if (v.type === "status") return v.status?.name ?? "";
-  if (v.type === "multi_select") return (v.multi_select ?? []).map((s) => s.name).join(", ");
+  if (v.type === "multi_select") return (v.multi_select ?? []).map((s: any) => s.name).join(", ");
   if (v.type === "number") return v.number ?? "";
   if (v.type === "date") return v.date?.start ?? "";
   return "";
 }
 
 /** Find a property name by a predicate over (lowercased name, definition). */
-function findProp(schema, pred) {
+function findProp(
+  schema: Record<string, any>,
+  pred: (name: string, def: any) => boolean,
+): string | undefined {
   return Object.keys(schema).find((k) => pred(k.toLowerCase(), schema[k]));
 }
 
-const isoDate = (d) => d.toISOString().slice(0, 10);
+const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
 /** Monday 00:00 UTC of the week containing d. UTC-based so it is deterministic
  *  regardless of server timezone (the caller can pass --now from the chat header). */
-function startOfWeekUTC(d) {
+function startOfWeekUTC(d: Date): Date {
   const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
   const mondayOffset = (x.getUTCDay() + 6) % 7; // Sun=0 -> 6, Mon=1 -> 0
   x.setUTCDate(x.getUTCDate() - mondayOffset);
@@ -687,7 +756,26 @@ function startOfWeekUTC(d) {
 // Pure tile renderers: take plain extracted rows and return tile markdown. The
 // numbers come straight from Notion queries (never the model), which is what
 // keeps the Dashboard honest. Exported for unit tests.
-function renderThisWeekTile(sessions) {
+interface SessionRow {
+  date: PropValue;
+  name: PropValue;
+  focus: PropValue;
+}
+
+interface GoalRow {
+  goal: PropValue;
+  status: PropValue;
+  current: PropValue;
+  target: PropValue;
+}
+
+interface BodyStatsRow {
+  date: PropValue;
+  bodyweight: PropValue;
+  waist: PropValue;
+}
+
+function renderThisWeekTile(sessions: SessionRow[]) {
   const lines = [`> [📅|${TILE_COLORS.thisWeek}] **This Week**`];
   if (!sessions.length) {
     lines.push("- No sessions logged yet this week.");
@@ -700,7 +788,7 @@ function renderThisWeekTile(sessions) {
   return lines.join("\n");
 }
 
-function renderGoalsTile(goals) {
+function renderGoalsTile(goals: GoalRow[]) {
   const lines = [`> [🎯|${TILE_COLORS.goals}] **Goals**`];
   const active = goals.filter((g) => g.status !== "Achieved" && g.status !== "Paused");
   const show = (active.length ? active : goals).slice(0, 5);
@@ -715,12 +803,12 @@ function renderGoalsTile(goals) {
   return lines.join("\n");
 }
 
-function renderBodyStatsTile(latest) {
+function renderBodyStatsTile(latest: BodyStatsRow | null) {
   const lines = [`> [⚖️|${TILE_COLORS.bodyStats}] **Body Stats**`];
   if (!latest) {
     lines.push("- No check-ins logged yet.");
   } else {
-    const parts = [];
+    const parts: string[] = [];
     if (latest.bodyweight !== "" && latest.bodyweight != null) parts.push(`${latest.bodyweight}kg`);
     if (latest.waist !== "" && latest.waist != null) parts.push(`waist ${latest.waist}cm`);
     lines.push(`- ${[latest.date, parts.join(", ")].filter(Boolean).join(": ")}`);
@@ -734,9 +822,9 @@ function renderBodyStatsTile(latest) {
  * leaves the old tile intact (brief duplication) rather than wiping it to empty.
  * Returns the number of blocks written.
  */
-async function replaceTileContent(columnId, md, forceColor) {
+async function replaceTileContent(columnId: string, md: string, forceColor?: string) {
   const existing = await notion(`/blocks/${columnId}/children`);
-  const oldIds = (existing.results ?? []).map((b) => b.id);
+  const oldIds: string[] = (existing.results ?? []).map((b: any) => b.id);
   const blocks = markdownToBlocks(md);
   // Lock the tile's header callout to its canonical color so it never drifts,
   // regardless of what color (if any) the source markdown specified.
@@ -752,18 +840,25 @@ async function replaceTileContent(columnId, md, forceColor) {
 }
 
 // ─── commands ────────────────────────────────────────────────────────────────
-async function cmdResolveDb(args) {
+/** Body of a database query request. */
+interface QueryBody {
+  page_size: number;
+  filter?: Record<string, unknown>;
+  sorts?: { property: string; direction: "ascending" | "descending" }[];
+}
+
+async function cmdResolveDb(args: Args) {
   const id = await resolveDbId(args.name ?? args.db);
   console.log(id);
 }
 
-async function cmdQueryRecent(args) {
+async function cmdQueryRecent(args: Args) {
   const dbId = await resolveDbId(args.db);
   const limit = Number.parseInt(args.limit ?? "3", 10);
   const db = await notion(`/databases/${dbId}`);
   const schema = db.properties ?? {};
   const dateProp = Object.keys(schema).find((k) => schema[k].type === "date");
-  const body = { page_size: limit };
+  const body: QueryBody = { page_size: limit };
   if (dateProp) body.sorts = [{ property: dateProp, direction: "descending" }];
   if (args.focus) body.filter = { property: "Focus", select: { equals: args.focus } };
 
@@ -776,13 +871,14 @@ async function cmdQueryRecent(args) {
   // Resolve property names from the actual schema so this adapts to any database
   // (e.g. "RPE (1-10)" vs "RPE"), rather than assuming fixed names.
   const titleProp = Object.keys(schema).find((k) => schema[k].type === "title");
-  const byName = (needle) => Object.keys(schema).find((k) => k.toLowerCase().includes(needle));
+  const byName = (needle: string) =>
+    Object.keys(schema).find((k) => k.toLowerCase().includes(needle));
   const focusProp = byName("focus");
   const rpeProp = byName("rpe");
   const exProp = byName("exercise");
 
-  let p;
-  const get = (name) => readProp(name ? p[name] : null);
+  let p: Record<string, any>;
+  const get = (name?: string) => readProp(name ? p[name] : null);
   for (const page of res.results) {
     p = page.properties ?? {};
     const parts = [get(dateProp), get(titleProp)];
@@ -793,7 +889,7 @@ async function cmdQueryRecent(args) {
   }
 }
 
-async function cmdLog(args) {
+async function cmdLog(args: Args) {
   const dbId = await resolveDbId(args.db);
   const properties = await buildProperties(dbId, args.set);
   // --dry-run validates and prints the parsed row without writing, so the coach
@@ -807,7 +903,7 @@ async function cmdLog(args) {
   console.log(`Logged row ${page.id}`);
 }
 
-async function cmdAppend(args) {
+async function cmdAppend(args: Args) {
   if (!args.page) throw new Error("--page <blockOrPageId> is required");
   const md = args.file ? fs.readFileSync(args.file, "utf8") : (args.md ?? "");
   if (!md.trim()) throw new Error("Nothing to append: pass --md or --file");
@@ -825,17 +921,17 @@ async function cmdAppend(args) {
  * Target the column by --column <id> or by --tile <thisWeek|goals|bodyStats>,
  * which is resolved from the cached Dashboard column ids.
  */
-async function cmdRefreshTile(args) {
+async function cmdRefreshTile(args: Args) {
   let columnId = args.column;
   if (!columnId && args.tile) {
     let cols = (await resolveDashboard()).columns ?? {};
     // An older cache may only hold the Row 1 tiles; re-capture from the live
     // page before giving up on a Row 2/3 tile like nextSession or nutrition.
-    if (!cols[args.tile]) cols = (await resolveDashboard(true)).columns ?? {};
-    columnId = cols[args.tile];
+    if (!cols[args.tile as TileName]) cols = (await resolveDashboard(true)).columns ?? {};
+    columnId = cols[args.tile as TileName];
     if (!columnId) {
       throw new Error(
-        `No column found for tile "${args.tile}" on the Dashboard. Known tiles: ${TILE_ROWS.flat().join(", ")}. Run setup-workspace.mjs, or pass --column <id>.`,
+        `No column found for tile "${args.tile}" on the Dashboard. Known tiles: ${TILE_ROWS.flat().join(", ")}. Run setup-workspace.ts, or pass --column <id>.`,
       );
     }
   }
@@ -843,7 +939,11 @@ async function cmdRefreshTile(args) {
   const md = args.file ? fs.readFileSync(args.file, "utf8") : (args.md ?? "");
   if (!md.trim()) throw new Error("Nothing to write: pass --md or --file");
 
-  const written = await replaceTileContent(columnId, md, TILE_COLORS[args.tile]);
+  const written = await replaceTileContent(
+    columnId,
+    md,
+    TILE_COLORS[args.tile as keyof typeof TILE_COLORS],
+  );
   console.log(`Refreshed tile ${args.tile ?? columnId} with ${written} block(s)`);
 }
 
@@ -854,10 +954,10 @@ async function cmdRefreshTile(args) {
  * change instead of hand-building each tile. --now <YYYY-MM-DD> sets "this week"
  * from the chat header date (defaults to the system date).
  */
-async function cmdSyncDashboard(args) {
+async function cmdSyncDashboard(args: Args) {
   const cols = (await resolveDashboard()).columns ?? {};
   if (!cols.thisWeek && !cols.goals && !cols.bodyStats) {
-    throw new Error("Dashboard has no tile columns. Run setup-workspace.mjs first.");
+    throw new Error("Dashboard has no tile columns. Run setup-workspace.ts first.");
   }
   const now = args.now ? new Date(args.now) : new Date();
   if (Number.isNaN(now.getTime())) throw new Error(`--now must be an ISO date, got "${args.now}"`);
@@ -869,15 +969,15 @@ async function cmdSyncDashboard(args) {
     const dateProp = findProp(schema, (_n, d) => d.type === "date");
     const titleProp = findProp(schema, (_n, d) => d.type === "title");
     const focusProp = findProp(schema, (n) => n.includes("focus"));
-    const body = { page_size: 100 };
+    const body: QueryBody = { page_size: 100 };
     if (dateProp) {
       body.filter = { property: dateProp, date: { on_or_after: isoDate(startOfWeekUTC(now)) } };
       body.sorts = [{ property: dateProp, direction: "descending" }];
     }
     const res = await notion(`/databases/${wlId}/query`, "POST", body);
-    const sessions = (res.results ?? []).map((pg) => ({
-      date: readProp(pg.properties?.[dateProp]),
-      name: readProp(pg.properties?.[titleProp]),
+    const sessions: SessionRow[] = (res.results ?? []).map((pg: any) => ({
+      date: readProp(pg.properties?.[dateProp as string]),
+      name: readProp(pg.properties?.[titleProp as string]),
       focus: focusProp ? readProp(pg.properties?.[focusProp]) : "",
     }));
     await replaceTileContent(cols.thisWeek, renderThisWeekTile(sessions), TILE_COLORS.thisWeek);
@@ -892,8 +992,8 @@ async function cmdSyncDashboard(args) {
     const curProp = findProp(schema, (n, d) => n.includes("current") && d.type === "number");
     const tgtProp = findProp(schema, (n, d) => n.includes("target") && d.type === "number");
     const res = await notion(`/databases/${gId}/query`, "POST", { page_size: 100 });
-    const goals = (res.results ?? []).map((pg) => ({
-      goal: readProp(pg.properties?.[titleProp]),
+    const goals: GoalRow[] = (res.results ?? []).map((pg: any) => ({
+      goal: readProp(pg.properties?.[titleProp as string]),
       status: statusProp ? readProp(pg.properties?.[statusProp]) : "",
       current: curProp ? readProp(pg.properties?.[curProp]) : "",
       target: tgtProp ? readProp(pg.properties?.[tgtProp]) : "",
@@ -908,13 +1008,13 @@ async function cmdSyncDashboard(args) {
     const dateProp = findProp(schema, (_n, d) => d.type === "date");
     const bwProp = findProp(schema, (n) => n.includes("bodyweight"));
     const waistProp = findProp(schema, (n) => n.includes("waist"));
-    const body = { page_size: 1 };
+    const body: QueryBody = { page_size: 1 };
     if (dateProp) body.sorts = [{ property: dateProp, direction: "descending" }];
     const res = await notion(`/databases/${bId}/query`, "POST", body);
     const row = res.results?.[0];
-    const latest = row
+    const latest: BodyStatsRow | null = row
       ? {
-          date: readProp(row.properties?.[dateProp]),
+          date: readProp(row.properties?.[dateProp as string]),
           bodyweight: bwProp ? readProp(row.properties?.[bwProp]) : "",
           waist: waistProp ? readProp(row.properties?.[waistProp]) : "",
         }
@@ -930,10 +1030,10 @@ async function cmdSyncDashboard(args) {
  * one subpage per imported training program). Optional markdown body and emoji.
  * Prints the new page id.
  */
-async function cmdCreatePage(args) {
+async function cmdCreatePage(args: Args) {
   if (!args.parent) throw new Error("--parent <pageId> is required");
   if (!args.title) throw new Error("--title is required");
-  const body = {
+  const body: Record<string, unknown> = {
     parent: { page_id: args.parent },
     properties: { title: { title: [{ text: { content: args.title } }] } },
   };
@@ -955,7 +1055,7 @@ async function cmdCreatePage(args) {
  * API calls: every child database by exact title, the Knowledge Base page, and
  * the Dashboard with its tile columns. This is the fresh-session bootstrap for
  * deployments where the gitignored data/ dir starts empty: it never touches the
- * unreliable /search API and never creates anything (unlike setup-workspace.mjs).
+ * unreliable /search API and never creates anything (unlike setup-workspace.ts).
  */
 async function cmdResolveWorkspace() {
   const hub = hubId();
@@ -967,7 +1067,7 @@ async function cmdResolveWorkspace() {
   const kids = await listChildren(hub);
   const cache = readCache();
   cache.__hub = hub;
-  const dbs = [];
+  const dbs: string[] = [];
   for (const b of kids) {
     if (b.type === "child_database") {
       const title = b.child_database?.title ?? "";
@@ -985,7 +1085,7 @@ async function cmdResolveWorkspace() {
   try {
     dashboard = (await resolveDashboard(true)).pageId;
   } catch {
-    /* no Dashboard page yet; setup-workspace.mjs builds it */
+    /* no Dashboard page yet; setup-workspace.ts builds it */
   }
   console.log(`Hub: ${hub}`);
   console.log(`Databases: ${dbs.join(", ") || "none"}`);
@@ -994,7 +1094,7 @@ async function cmdResolveWorkspace() {
   console.log("Ids cached to data/notion-ids.json");
 }
 
-const COMMANDS = {
+const COMMANDS: Record<string, (args: Args) => Promise<void>> = {
   "resolve-db": cmdResolveDb,
   "resolve-workspace": cmdResolveWorkspace,
   "query-recent": cmdQueryRecent,
@@ -1021,11 +1121,11 @@ async function main() {
   await fn(parseArgs(rest));
 }
 
-// Run only when invoked directly (node scripts/notion.mjs ...), so the pure
+// Run only when invoked directly (node scripts/notion.ts ...), so the pure
 // helpers above can be imported by the test suite without executing a command.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err) => {
-    console.error(err.message);
+    console.error((err as Error).message);
     process.exitCode = 1;
   });
 }

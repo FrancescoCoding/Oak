@@ -23,7 +23,7 @@ OAuth2 for installed apps, set up once:
    app**.
 2. Put the client id and secret in `.env` as `GOOGLE_CLIENT_ID` /
    `GOOGLE_CLIENT_SECRET`.
-3. Run `node --env-file=.env scripts/google-auth.mjs`. It starts a loopback
+3. Run `node --env-file=.env scripts/google-auth.ts`. It starts a loopback
    server on 127.0.0.1, prints the consent URL, receives the redirect,
    exchanges the code, and writes `data/google-token.json` (gitignored, same
    trust tier as `data/notion-ids.json`).
@@ -31,10 +31,10 @@ OAuth2 for installed apps, set up once:
 Scope is `https://www.googleapis.com/auth/calendar` (full, not `.events`) so
 the agent can also create a dedicated training calendar.
 
-At runtime `scripts/calendar.mjs` mints short-lived access tokens from the
+At runtime `scripts/calendar.ts` mints short-lived access tokens from the
 refresh token, caches them in the token file with their expiry, refreshes when
 within a minute of expiring, and forces one re-mint on a 401. Requests retry
-with backoff on 429/5xx, same tuning as `notion.mjs`.
+with backoff on 429/5xx, same tuning as `notion.ts`.
 
 Refresh token resolution order: `GOOGLE_REFRESH_TOKEN` env var (deployments:
 store the `refresh_token` field from the token file in Secret Manager), then
@@ -51,23 +51,23 @@ First match wins:
 
 1. `GOOGLE_CALENDAR_ID` env var,
 2. the id cached in `data/google-calendar.json` by
-   `calendar.mjs use-calendar --name "Training" [--create]` (find-or-create by
+   `calendar.ts use-calendar --name "Training" [--create]` (find-or-create by
    name, mirrors the Notion resolve-by-name pattern),
 3. `primary`.
 
-## The helper: scripts/calendar.mjs
+## The helper: scripts/calendar.ts
 
 ```bash
-node scripts/calendar.mjs status                       # configured? which calendar?
-node scripts/calendar.mjs list --from 2026-07-13 [--to 2026-07-20] [--limit 50]
-node scripts/calendar.mjs create --title "Push A" \
+node scripts/calendar.ts status                       # configured? which calendar?
+node scripts/calendar.ts list --from 2026-07-13 [--to 2026-07-20] [--limit 50]
+node scripts/calendar.ts create --title "Push A" \
      --start "2026-07-13T18:00" --end "2026-07-13T19:00" \
      [--description ...] [--location ...] \
      [--reminders "popup:30"] [--recurrence "RRULE:FREQ=WEEKLY;BYDAY=MO,TH"]
-node scripts/calendar.mjs update --id <eventId> [--title|--start|--end|--description|--reminders ...]
-node scripts/calendar.mjs delete --id <eventId>
-node scripts/calendar.mjs list-calendars
-node scripts/calendar.mjs use-calendar --name "Training" --create
+node scripts/calendar.ts update --id <eventId> [--title|--start|--end|--description|--reminders ...]
+node scripts/calendar.ts delete --id <eventId>
+node scripts/calendar.ts list-calendars
+node scripts/calendar.ts use-calendar --name "Training" --create
 ```
 
 Conventions:
@@ -98,7 +98,7 @@ Conventions:
 
 ## Testing
 
-- `scripts/calendar.test.mjs` unit-tests the pure logic (time parsing,
+- `scripts/calendar.test.ts` unit-tests the pure logic (time parsing,
   reminder specs, event body building, list windows, formatting); no network.
-- Manual smoke test: `node scripts/google-auth.mjs`, then
-  `node scripts/calendar.mjs status` and a `list` round-trip.
+- Manual smoke test: `node scripts/google-auth.ts`, then
+  `node scripts/calendar.ts status` and a `list` round-trip.

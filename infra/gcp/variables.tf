@@ -136,7 +136,7 @@ variable "google_client_secret" {
 
 variable "google_refresh_token" {
   type        = string
-  description = "Google OAuth refresh token from `node scripts/google-auth.mjs`."
+  description = "Google OAuth refresh token from `node scripts/google-auth.ts`."
   sensitive   = true
   default     = ""
 }

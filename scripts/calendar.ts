@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * calendar.mjs: the coach's Google Calendar REST helper.
+ * calendar.ts: the coach's Google Calendar REST helper.
  *
  * Google Calendar is reached directly through its REST API with plain fetch,
- * the same pattern as scripts/notion.mjs (no SDK, no MCP server): the API is a
+ * the same pattern as scripts/notion.ts (no SDK, no MCP server): the API is a
  * handful of JSON endpoints and OAuth2 refresh is a single POST, so one small
  * code path keeps auth storage, retries, and output format under our control.
  *
@@ -12,7 +12,7 @@
  * reminders (default 30 minutes before), and recurring weekly events cover a
  * stable training schedule.
  *
- * Auth: OAuth2 refresh token minted once by scripts/google-auth.mjs.
+ * Auth: OAuth2 refresh token minted once by scripts/google-auth.ts.
  *   - GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (env, from .env)
  *   - refresh token: GOOGLE_REFRESH_TOKEN env if set (deployments, Secret
  *     Manager), otherwise data/google-token.json (local, gitignored; override
@@ -24,17 +24,17 @@
  * cached by `use-calendar` in data/google-calendar.json, then "primary".
  *
  * Usage:
- *   node scripts/calendar.mjs status
- *   node scripts/calendar.mjs list --from 2026-07-13 [--to 2026-07-20]
- *   node scripts/calendar.mjs create --title "Push A" \
+ *   node scripts/calendar.ts status
+ *   node scripts/calendar.ts list --from 2026-07-13 [--to 2026-07-20]
+ *   node scripts/calendar.ts create --title "Push A" \
  *        --start "2026-07-13T18:00" --end "2026-07-13T19:00" \
  *        [--description "Bench 5x5..."] [--reminders "popup:30"] \
  *        [--recurrence "RRULE:FREQ=WEEKLY;BYDAY=MO"]
- *   node scripts/calendar.mjs update --id <eventId> [--title ...] [--start ...] \
+ *   node scripts/calendar.ts update --id <eventId> [--title ...] [--start ...] \
  *        [--end ...] [--description ...] [--reminders ...]
- *   node scripts/calendar.mjs delete --id <eventId>
- *   node scripts/calendar.mjs list-calendars
- *   node scripts/calendar.mjs use-calendar --name "Oak Training" [--create]
+ *   node scripts/calendar.ts delete --id <eventId>
+ *   node scripts/calendar.ts list-calendars
+ *   node scripts/calendar.ts use-calendar --name "Oak Training" [--create]
  *
  * Times without a Z/offset (e.g. 2026-07-13T18:00) are interpreted in TIMEZONE
  * (default Europe/London). A bare YYYY-MM-DD makes an all-day event.
@@ -55,11 +55,70 @@ const TOKEN_FILE = path.resolve(
 const CALENDAR_FILE = path.resolve(process.cwd(), "data", "google-calendar.json");
 
 const MAX_RETRIES = 5;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// ─── arg parsing (same shape as notion.mjs) ──────────────────────────────────
-function parseArgs(argv) {
-  const args = {};
+// ─── types ───────────────────────────────────────────────────────────────────
+
+/** Parsed CLI flags: `--key value` becomes a string, a bare `--flag` becomes true. */
+type Args = Record<string, string | true>;
+
+/** Cached OAuth state in data/google-token.json. */
+interface TokenFile {
+  refresh_token?: string;
+  access_token?: string;
+  /** Epoch milliseconds. */
+  expires_at?: number;
+}
+
+/** Cached calendar choice in data/google-calendar.json. */
+interface CalendarCache {
+  calendarId?: string;
+  name?: string;
+}
+
+/** Google event time: `date` for all-day events, `dateTime` (plus optional zone) otherwise. */
+interface EventTime {
+  date?: string;
+  dateTime?: string;
+  timeZone?: string;
+}
+
+type ReminderMethod = "popup" | "email";
+
+interface ReminderOverride {
+  method: ReminderMethod;
+  minutes: number;
+}
+
+interface Reminders {
+  useDefault: boolean;
+  overrides?: ReminderOverride[];
+}
+
+/** The subset of a Google event resource this helper writes. */
+interface EventBody {
+  summary?: string;
+  description?: string;
+  location?: string;
+  start?: EventTime;
+  end?: EventTime;
+  recurrence?: string[];
+  reminders?: Reminders;
+}
+
+/** The fields of a Google event resource this helper reads back. */
+interface CalendarEvent {
+  id: string;
+  summary?: string;
+  start?: EventTime;
+  end?: EventTime;
+  recurrence?: string[];
+  recurringEventId?: string;
+}
+
+// ─── arg parsing (same shape as notion.ts) ───────────────────────────────────
+function parseArgs(argv: string[]): Args {
+  const args: Args = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) continue;
@@ -71,7 +130,7 @@ function parseArgs(argv) {
 }
 
 // ─── auth: refresh-token file and access-token minting ──────────────────────
-function readTokenFile() {
+function readTokenFile(): TokenFile {
   try {
     return JSON.parse(fs.readFileSync(TOKEN_FILE, "utf8"));
   } catch {
@@ -79,7 +138,7 @@ function readTokenFile() {
   }
 }
 
-function writeTokenFile(data) {
+function writeTokenFile(data: TokenFile) {
   fs.mkdirSync(path.dirname(TOKEN_FILE), { recursive: true });
   const tmp = `${TOKEN_FILE}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
@@ -100,20 +159,20 @@ function calendarConfigured() {
  * discard the cache (used once after a 401, in case the token was revoked and
  * re-granted or the cache is stale).
  */
-async function accessToken(force = false) {
+async function accessToken(force = false): Promise<string> {
   const cached = readTokenFile();
   const skewMs = 60 * 1000;
   if (!force && cached.access_token && (cached.expires_at ?? 0) - skewMs > Date.now()) {
     return cached.access_token;
   }
   const rt = refreshToken();
-  if (!rt) throw new Error("No Google refresh token. Run `node scripts/google-auth.mjs` first.");
+  if (!rt) throw new Error("No Google refresh token. Run `node scripts/google-auth.ts` first.");
   const res = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id: CLIENT_ID!,
+      client_secret: CLIENT_SECRET!,
       refresh_token: rt,
       grant_type: "refresh_token",
     }),
@@ -121,7 +180,7 @@ async function accessToken(force = false) {
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(
-      `Google token refresh failed (${res.status}): ${json.error_description ?? json.error ?? ""}. If the grant was revoked, re-run \`node scripts/google-auth.mjs\`.`,
+      `Google token refresh failed (${res.status}): ${json.error_description ?? json.error ?? ""}. If the grant was revoked, re-run \`node scripts/google-auth.ts\`.`,
     );
   }
   // Cache alongside the refresh token so repeated script calls in one
@@ -136,7 +195,7 @@ async function accessToken(force = false) {
 }
 
 // ─── HTTP with retry (429/5xx backoff, one forced re-auth on 401) ───────────
-async function gcal(pathname, method = "GET", body = undefined) {
+async function gcal(pathname: string, method = "GET", body?: object): Promise<any> {
   if (!CLIENT_ID || !CLIENT_SECRET) {
     throw new Error("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set.");
   }
@@ -175,7 +234,7 @@ async function gcal(pathname, method = "GET", body = undefined) {
 }
 
 // ─── calendar id resolution ──────────────────────────────────────────────────
-function readCalendarCache() {
+function readCalendarCache(): CalendarCache {
   try {
     return JSON.parse(fs.readFileSync(CALENDAR_FILE, "utf8"));
   } catch {
@@ -195,7 +254,7 @@ function calendarId() {
  *   "2026-07-13T18:00"          -> { dateTime: "...T18:00:00", timeZone } (local)
  *   "2026-07-13T18:00:00Z"      -> { dateTime } (explicit offset wins, no tz)
  */
-function toEventTime(value, timeZone = TIMEZONE) {
+function toEventTime(value: unknown, timeZone = TIMEZONE): EventTime {
   if (typeof value !== "string" || !value) throw new Error(`Invalid time: "${value}"`);
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return { date: value };
   const m = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(:\d{2})?(Z|[+-]\d{2}:\d{2})?$/);
@@ -217,7 +276,7 @@ function toEventTime(value, timeZone = TIMEZONE) {
  *   "default"             -> the calendar's default reminders
  *   "none"                -> no reminders
  */
-function parseReminders(spec) {
+function parseReminders(spec: string | undefined): Reminders {
   if (!spec || spec === "default") return { useDefault: true };
   if (spec === "none") return { useDefault: false, overrides: [] };
   const overrides = spec.split(",").map((part) => {
@@ -226,7 +285,7 @@ function parseReminders(spec) {
     if (!["popup", "email"].includes(method) || !Number.isFinite(mins) || mins < 0) {
       throw new Error(`Invalid reminder "${part}". Use e.g. "popup:30" or "popup:30,email:60".`);
     }
-    return { method, minutes: mins };
+    return { method: method as ReminderMethod, minutes: mins };
   });
   return { useDefault: false, overrides };
 }
@@ -237,8 +296,11 @@ function parseReminders(spec) {
  * integration: session reminders on the phone without Telegram). For update
  * (partial=true) only the provided fields are included.
  */
-function buildEventBody(args, { partial = false, timeZone = TIMEZONE } = {}) {
-  const body = {};
+function buildEventBody(
+  args: Args,
+  { partial = false, timeZone = TIMEZONE }: { partial?: boolean; timeZone?: string } = {},
+): EventBody {
+  const body: EventBody = {};
   if (args.title !== undefined) body.summary = String(args.title);
   if (args.description !== undefined) body.description = String(args.description);
   if (args.location !== undefined) body.location = String(args.location);
@@ -253,7 +315,7 @@ function buildEventBody(args, { partial = false, timeZone = TIMEZONE } = {}) {
     }
     body.recurrence = [rule];
   }
-  if (args.reminders !== undefined) body.reminders = parseReminders(args.reminders);
+  if (args.reminders !== undefined) body.reminders = parseReminders(args.reminders as string);
 
   if (!partial) {
     if (!body.summary) throw new Error("--title is required.");
@@ -271,15 +333,19 @@ function buildEventBody(args, { partial = false, timeZone = TIMEZONE } = {}) {
  * is not assumed (the caller passes the date from the Telegram header); --to
  * defaults to 7 days after --from. Bare dates span from local midnight.
  */
-function resolveWindow(from, to, timeZone = TIMEZONE) {
+function resolveWindow(
+  from: string | true | undefined,
+  to: string | true | undefined,
+  timeZone = TIMEZONE,
+): { timeMin: string; timeMax: string } {
   if (!from) throw new Error("--from is required (YYYY-MM-DD or an ISO datetime).");
   const start = toEventTime(String(from), timeZone);
-  const timeMin = start.date ? `${start.date}T00:00:00` : start.dateTime;
-  let timeMax;
+  const timeMin = start.date ? `${start.date}T00:00:00` : start.dateTime!;
+  let timeMax: string;
   if (to) {
     const end = toEventTime(String(to), timeZone);
     // A bare --to date means "through the end of that day".
-    timeMax = end.date ? `${end.date}T23:59:59` : end.dateTime;
+    timeMax = end.date ? `${end.date}T23:59:59` : end.dateTime!;
   } else {
     const base = new Date(`${timeMin.slice(0, 10)}T00:00:00Z`);
     base.setUTCDate(base.getUTCDate() + 7);
@@ -289,7 +355,7 @@ function resolveWindow(from, to, timeZone = TIMEZONE) {
 }
 
 /** One compact, phone-log-friendly line per event, id included for update/delete. */
-function formatEventLine(ev) {
+function formatEventLine(ev: CalendarEvent): string {
   const start = ev.start?.dateTime ?? ev.start?.date ?? "?";
   const end = ev.end?.dateTime ?? ev.end?.date ?? "?";
   const when = ev.start?.date
@@ -306,7 +372,7 @@ async function cmdStatus() {
     return;
   }
   if (!refreshToken()) {
-    console.log("Not authorised: no refresh token. Run `node scripts/google-auth.mjs`.");
+    console.log("Not authorised: no refresh token. Run `node scripts/google-auth.ts`.");
     return;
   }
   const id = calendarId();
@@ -314,7 +380,7 @@ async function cmdStatus() {
   console.log(`Configured. Calendar: "${cal.summary}" (${id}), timezone ${cal.timeZone}.`);
 }
 
-async function cmdList(args) {
+async function cmdList(args: Args) {
   const { timeMin, timeMax } = resolveWindow(args.from, args.to);
   const params = new URLSearchParams({
     timeMin: new Date(`${timeMin}${/Z|[+-]\d{2}:\d{2}$/.test(timeMin) ? "" : "Z"}`).toISOString(),
@@ -332,14 +398,14 @@ async function cmdList(args) {
   for (const ev of events) console.log(formatEventLine(ev));
 }
 
-async function cmdCreate(args) {
+async function cmdCreate(args: Args) {
   const body = buildEventBody(args);
   const ev = await gcal(`/calendars/${encodeURIComponent(calendarId())}/events`, "POST", body);
   console.log(`Created: ${formatEventLine(ev)}`);
   if (ev.htmlLink) console.log(`Link: ${ev.htmlLink}`);
 }
 
-async function cmdUpdate(args) {
+async function cmdUpdate(args: Args) {
   if (!args.id) throw new Error("--id is required.");
   const body = buildEventBody(args, { partial: true });
   if (Object.keys(body).length === 0)
@@ -352,7 +418,7 @@ async function cmdUpdate(args) {
   console.log(`Updated: ${formatEventLine(ev)}`);
 }
 
-async function cmdDelete(args) {
+async function cmdDelete(args: Args) {
   if (!args.id) throw new Error("--id is required.");
   await gcal(
     `/calendars/${encodeURIComponent(calendarId())}/events/${encodeURIComponent(args.id)}`,
@@ -377,11 +443,11 @@ async function cmdListCalendars() {
  * data/google-calendar.json (same trust tier as notion-ids.json) so every
  * later command targets it without the user setting GOOGLE_CALENDAR_ID.
  */
-async function cmdUseCalendar(args) {
+async function cmdUseCalendar(args: Args) {
   const name = args.name && args.name !== true ? String(args.name) : "";
   if (!name) throw new Error('--name is required, e.g. --name "Oak Training".');
   const json = await gcal("/users/me/calendarList");
-  let cal = (json.items ?? []).find((c) => c.summary === name);
+  let cal = (json.items ?? []).find((c: any) => c.summary === name);
   if (!cal && args.create) {
     cal = await gcal("/calendars", "POST", { summary: name, timeZone: TIMEZONE });
     console.log(`Created calendar "${name}".`);
@@ -396,7 +462,7 @@ async function cmdUseCalendar(args) {
   console.log(`Using calendar "${name}" (${cal.id}). Cached to data/google-calendar.json.`);
 }
 
-const COMMANDS = {
+const COMMANDS: Record<string, (args: Args) => Promise<void>> = {
   status: cmdStatus,
   list: cmdList,
   create: cmdCreate,
@@ -417,7 +483,7 @@ async function main() {
   if (command !== "status" && !calendarConfigured()) {
     console.error(
       "Google Calendar is not configured. Set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET " +
-        "and run `node scripts/google-auth.mjs` once (see docs/google-calendar-architecture.md).",
+        "and run `node scripts/google-auth.ts` once (see docs/google-calendar-architecture.md).",
     );
     process.exitCode = 1;
     return;

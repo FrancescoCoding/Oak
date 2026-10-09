@@ -18,12 +18,17 @@ process.env.RUN_LOG_FILE = path.join(TMP_DIR, "agent-runs.jsonl");
  * the messages that call yields and whether it then throws. calls records the
  * options the runner passed, so retry counts and resume are assertable.
  */
-let script = [];
-const calls = [];
+interface ScriptStep {
+  messages?: unknown[];
+  throws?: Error;
+}
+
+let script: ScriptStep[] = [];
+const calls: { options: { resume?: string } }[] = [];
 
 mock.module("@anthropic-ai/claude-agent-sdk", {
   namedExports: {
-    query: (args) => {
+    query: (args: { options: { resume?: string } }) => {
       const step = script[calls.length] ?? script[script.length - 1];
       calls.push(args);
       return (async function* () {
@@ -36,8 +41,12 @@ mock.module("@anthropic-ai/claude-agent-sdk", {
 
 const { runAgent } = await import("../dist/agent/runner.js");
 
-const initMessage = (sessionId) => ({ type: "system", subtype: "init", session_id: sessionId });
-const resultMessage = (text) => ({ type: "result", subtype: "success", result: text });
+const initMessage = (sessionId: string) => ({
+  type: "system",
+  subtype: "init",
+  session_id: sessionId,
+});
+const resultMessage = (text: string) => ({ type: "result", subtype: "success", result: text });
 
 beforeEach(() => {
   script = [];

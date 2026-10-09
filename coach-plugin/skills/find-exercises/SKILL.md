@@ -13,10 +13,10 @@ Run the bundled CLI with Bash. Filters are ANDed; muscle matches primary or seco
 
 ```bash
 # Compact text (default): name, equipment, level, primary muscles, first cue, demo image
-node scripts/exercise-db.mjs --muscle chest --equipment dumbbell --limit 6
+node scripts/exercise-db.ts --muscle chest --equipment dumbbell --limit 6
 
 # Full records as JSON (all instructions + image URL), use when you need the cues or an image
-node scripts/exercise-db.mjs --name "romanian deadlift" --limit 1 --json
+node scripts/exercise-db.ts --name "romanian deadlift" --limit 1 --json
 ```
 
 Flags: `--muscle`, `--equipment`, `--level` (beginner/intermediate/expert), `--category` (strength, cardio, stretching, plyometrics, powerlifting, olympic weightlifting, strongman), `--name`, `--limit` (default 8), `--json`, `--refresh` (force re-download; the dataset is cached for 30 days).

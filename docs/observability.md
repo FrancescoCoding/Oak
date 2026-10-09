@@ -50,7 +50,7 @@ the hot path, which is only safe because the promise cannot reject.
 outbound Telegram message, because a run record can contain anything the model said.
 
 **Pure aggregation.** `aggregateStats(records)` does no I/O and is unit-tested
-directly (`tests/runlog.test.mjs`) for percentiles, tool shares, empty input, and
+directly (`tests/runlog.test.ts`) for percentiles, tool shares, empty input, and
 runs with no cost field.
 
 ## The /stats command

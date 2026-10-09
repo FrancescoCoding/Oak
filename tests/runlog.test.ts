@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import type { RunRecord } from "../dist/agent/runlog.js";
 
 // config reads the environment at import time, so the dummy values (and the
 // run log location) have to be in place before the dynamic import below.
@@ -18,14 +19,14 @@ process.env.RUN_LOG_FILE = path.join(BLOCKED_PARENT, "agent-runs.jsonl");
 
 const { aggregateStats, appendRunRecord } = await import("../dist/agent/runlog.js");
 
-function run(overrides = {}) {
+function run(overrides: Record<string, unknown> = {}): RunRecord {
   return {
     ts: new Date().toISOString(),
     source: "telegram",
     isError: false,
     attempt: 1,
     ...overrides,
-  };
+  } as RunRecord;
 }
 
 // ─── aggregateStats ──────────────────────────────────────────────────
@@ -54,7 +55,7 @@ test("counts runs, errors, turns and sources", () => {
 });
 
 test("p50 and p95 use nearest rank over the recorded durations", () => {
-  const records = [];
+  const records: RunRecord[] = [];
   for (let i = 1; i <= 100; i++) records.push(run({ durationMs: i * 100 }));
   const stats = aggregateStats(records);
   assert.equal(stats.p50DurationMs, 5000);
@@ -93,7 +94,7 @@ test("missing cost fields are reported as absent, not as zero spend", () => {
 // assert on "resolves and warns", never on a thrown error.
 
 test("resolves when the log target cannot be written", async () => {
-  const warnings = [];
+  const warnings: string[] = [];
   const original = console.warn;
   console.warn = (...args) => warnings.push(args.join(" "));
   try {
@@ -106,7 +107,10 @@ test("resolves when the log target cannot be written", async () => {
 });
 
 test("resolves when the record contains circular or odd values", async () => {
-  const record = run({ numTurns: Number.NaN, durationMs: Number.POSITIVE_INFINITY });
+  const record: RunRecord & { self?: unknown } = run({
+    numTurns: Number.NaN,
+    durationMs: Number.POSITIVE_INFINITY,
+  });
   record.self = record;
   const original = console.warn;
   console.warn = () => {};

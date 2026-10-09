@@ -21,7 +21,7 @@ find knowledge -maxdepth 1 -type f ! -name README.md ! -name .gitkeep
 ```
 
 The Knowledge Base page id is cached in `data/notion-ids.json` under
-`__knowledgeBase` (created by setup-notion via `scripts/setup-workspace.mjs`). If
+`__knowledgeBase` (created by setup-notion via `scripts/setup-workspace.ts`). If
 it does not exist yet, run setup-notion first. If there are no new files, tell the
 user there is nothing to import and stop.
 
@@ -43,7 +43,7 @@ For each program file:
 Create one organised subpage per program under the Knowledge Base page:
 
 ```bash
-node scripts/notion.mjs create-page \
+node scripts/notion.ts create-page \
   --parent "$(node -e "console.log(require('./data/notion-ids.json').__knowledgeBase)")" \
   --title "Push Pull Legs (6 day)" --icon "🏋️" --file /path/to/structured.md
 ```

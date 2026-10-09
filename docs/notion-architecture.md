@@ -3,7 +3,7 @@
 The coaching workspace lives under one root Notion page (the **Hub**, set via
 `NOTION_PARENT_PAGE_ID`). Four databases and two pages (a Dashboard and a
 Knowledge Base) hang directly off it. The whole thing is built deterministically
-by `scripts/setup-workspace.mjs` and maintained through `scripts/notion.mjs`.
+by `scripts/setup-workspace.ts` and maintained through `scripts/notion.ts`.
 
 Instance-specific ids (Hub, each database, the Dashboard page, and its column
 ids) are **not hardcoded** anywhere in the repo. They are discovered at build
@@ -22,7 +22,7 @@ Relations force the order: a database referenced by a relation must exist first.
 6. **Dashboard** page
 7. **Knowledge Base** page (where dumped training programs are filed as subpages)
 
-Run it with: `node scripts/setup-workspace.mjs` (idempotent: existing
+Run it with: `node scripts/setup-workspace.ts` (idempotent: existing
 databases/pages are detected by title and reused, never duplicated). Add
 `--rebuild-dashboard` to regenerate the Dashboard body.
 
@@ -36,15 +36,15 @@ databases/pages are detected by title and reused, never duplicated). Add
 - **Columns:** children go *inside* the `column_list` object
   (`{ type:"column_list", column_list:{ children:[...] } }`), and every `column`
   needs at least one child block (an empty paragraph as placeholder). The
-  `colList()` helper in `setup-workspace.mjs` and the `::: columns / ||| / :::`
-  markdown in `notion.mjs` both enforce this.
+  `colList()` helper in `setup-workspace.ts` and the `::: columns / ||| / :::`
+  markdown in `notion.ts` both enforce this.
 - **Pages vs blocks:** `POST /v1/pages` does not nest column children reliably.
   Create the page flat, then `PATCH /v1/blocks/{id}/children` to add content.
   Batch at <=90 blocks per request.
 - **Rows:** `POST /v1/pages` with `parent:{ database_id }`. Use
-  `node scripts/notion.mjs log --db "Workout Log" --set "Name=value" ...`.
+  `node scripts/notion.ts log --db "Workout Log" --set "Name=value" ...`.
 - **Child pages:** `POST /v1/pages` with `parent:{ page_id }`. Use
-  `node scripts/notion.mjs create-page --parent <pageId> --title "..." --file x.md`.
+  `node scripts/notion.ts create-page --parent <pageId> --title "..." --file x.md`.
 
 ## Database schemas
 
@@ -85,9 +85,9 @@ The Row 1 column ids are captured into `data/notion-ids.json` under
 Never edit blocks in place (ids shift). Replace the whole tile:
 
 ```bash
-node scripts/notion.mjs refresh-tile --tile goals --md "> [🎯] **Goals**\n- Squat 100kg by Sept"
-node scripts/notion.mjs refresh-tile --tile thisWeek --file week.md
-node scripts/notion.mjs refresh-tile --tile bodyStats --md "..."
+node scripts/notion.ts refresh-tile --tile goals --md "> [🎯] **Goals**\n- Squat 100kg by Sept"
+node scripts/notion.ts refresh-tile --tile thisWeek --file week.md
+node scripts/notion.ts refresh-tile --tile bodyStats --md "..."
 ```
 
 ## Knowledge Base

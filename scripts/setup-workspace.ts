@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * setup-workspace.mjs: deterministic builder for the coaching Notion workspace.
+ * setup-workspace.ts: deterministic builder for the coaching Notion workspace.
  *
  * Builds, in the strict order the relations require:
  *   1. Programs DB
@@ -13,15 +13,15 @@
  * Idempotent: existing databases/pages under the Hub are detected by title and
  * reused, never duplicated. All resolved ids (databases, hub, dashboard page,
  * and the Row 1 column ids used for tile updates) are written to
- * data/notion-ids.json so the agent and the notion.mjs helper can find them on
+ * data/notion-ids.json so the agent and the notion.ts helper can find them on
  * this instance. The committed code hardcodes no ids; they are per-workspace.
  *
  * Uses the Notion REST API directly.
  *
  * Usage:
- *   node scripts/setup-workspace.mjs                 # build/repair, keep existing dashboard content
- *   node scripts/setup-workspace.mjs --rebuild-dashboard
- *   node scripts/setup-workspace.mjs --hub <pageId>  # override NOTION_PARENT_PAGE_ID
+ *   node scripts/setup-workspace.ts                 # build/repair, keep existing dashboard content
+ *   node scripts/setup-workspace.ts --rebuild-dashboard
+ *   node scripts/setup-workspace.ts --hub <pageId>  # override NOTION_PARENT_PAGE_ID
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -36,8 +36,8 @@ if (!TOKEN) {
 }
 
 const args = process.argv.slice(2);
-const flag = (name) => args.includes(`--${name}`);
-const opt = (name) => {
+const flag = (name: string) => args.includes(`--${name}`);
+const opt = (name: string): string | undefined => {
   const i = args.indexOf(`--${name}`);
   return i !== -1 ? args[i + 1] : undefined;
 };
@@ -45,7 +45,7 @@ const opt = (name) => {
 // Hub resolution order: --hub flag, NOTION_PARENT_PAGE_ID, then the gitignored local
 // pin file config/notion-hub.json ({ "hubPageId": "..." }, copy the .example) so a fresh deployment
 // with an empty data/ mount can still rebuild against the right workspace.
-function pinnedHub() {
+function pinnedHub(): string | undefined {
   try {
     return JSON.parse(
       fs.readFileSync(path.resolve(process.cwd(), "config", "notion-hub.json"), "utf8"),
@@ -67,9 +67,9 @@ if (!HUB) {
 // backoff (honouring Retry-After) on 429 and transient 5xx, then surface the
 // error if it persists.
 const MAX_RETRIES = 5;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function api(pathname, method, body) {
+async function api(pathname: string, method?: string, body?: unknown): Promise<any> {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`${API}/${pathname}`, {
       method,
@@ -99,14 +99,28 @@ async function api(pathname, method, body) {
 }
 
 // ─── cache ───────────────────────────────────────────────────────────────────
-function readCache() {
+/** Dashboard column ids keyed by tile name, plus the Row 1 column_list id. */
+type TileColumns = { listId?: string; [tile: string]: string | undefined };
+
+/** Shape of data/notion-ids.json: database ids by title, plus `__`-prefixed page ids. */
+interface IdCache {
+  __hub?: string;
+  __knowledgeBase?: string;
+  __dashboard?: { pageId: string; columns: TileColumns };
+  Programs?: string;
+  Goals?: string;
+  "Body Stats"?: string;
+  "Workout Log"?: string;
+}
+
+function readCache(): IdCache {
   try {
     return JSON.parse(fs.readFileSync(CACHE_FILE, "utf8"));
   } catch {
     return {};
   }
 }
-function writeCache(c) {
+function writeCache(c: IdCache) {
   fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
   // Atomic write (temp + rename): a crash mid-write must not leave a truncated
   // cache that readCache swallows as {}, which would re-create duplicate databases.
@@ -117,28 +131,40 @@ function writeCache(c) {
 const cache = readCache();
 
 // ─── block helpers (from the build spec) ─────────────────────────────────────
-const RT = (t) => [{ type: "text", text: { content: t } }];
-const RTb = (t) => [{ type: "text", text: { content: t }, annotations: { bold: true } }];
-const h2 = (t) => ({ type: "heading_2", heading_2: { rich_text: RT(t) } });
-const h3 = (t) => ({ type: "heading_3", heading_3: { rich_text: RT(t) } });
-const p = (t) => ({ type: "paragraph", paragraph: { rich_text: RT(t) } });
-const bul = (t) => ({ type: "bulleted_list_item", bulleted_list_item: { rich_text: RT(t) } });
-const div = () => ({ type: "divider", divider: {} });
-const pe = () => ({ type: "paragraph", paragraph: { rich_text: [] } });
-const box = (t, e, c = "default") => ({
+type RichText = {
+  type: "text";
+  text: { content: string; link?: { url: string } };
+  annotations?: { bold: boolean };
+};
+type Block = { type: string; [key: string]: unknown };
+
+const RT = (t: string): RichText[] => [{ type: "text", text: { content: t } }];
+const RTb = (t: string): RichText[] => [
+  { type: "text", text: { content: t }, annotations: { bold: true } },
+];
+const h2 = (t: string): Block => ({ type: "heading_2", heading_2: { rich_text: RT(t) } });
+const h3 = (t: string): Block => ({ type: "heading_3", heading_3: { rich_text: RT(t) } });
+const p = (t: string): Block => ({ type: "paragraph", paragraph: { rich_text: RT(t) } });
+const bul = (t: string): Block => ({
+  type: "bulleted_list_item",
+  bulleted_list_item: { rich_text: RT(t) },
+});
+const div = (): Block => ({ type: "divider", divider: {} });
+const pe = (): Block => ({ type: "paragraph", paragraph: { rich_text: [] } });
+const box = (t: string, e: string, c = "default"): Block => ({
   type: "callout",
   callout: { rich_text: RT(t), icon: { type: "emoji", emoji: e }, color: c },
 });
-const q = (t) => ({ type: "quote", quote: { rich_text: RT(t) } });
+const q = (t: string): Block => ({ type: "quote", quote: { rich_text: RT(t) } });
 // Inline link to a Notion page/database, for the Dashboard's index row.
-const pageUrl = (id) => `https://www.notion.so/${(id ?? "").replace(/-/g, "")}`;
-const link = (label, id) => ({
+const pageUrl = (id: string | undefined) => `https://www.notion.so/${(id ?? "").replace(/-/g, "")}`;
+const link = (label: string, id: string | undefined): RichText => ({
   type: "text",
   text: { content: label, link: { url: pageUrl(id) } },
 });
-const sep = () => ({ type: "text", text: { content: "   ·   " } });
+const sep = (): RichText => ({ type: "text", text: { content: "   ·   " } });
 // Column layout: children go INSIDE column_list, each column needs >=1 block.
-const colList = (...columns) => ({
+const colList = (...columns: Block[][]): Block => ({
   type: "column_list",
   column_list: {
     children: columns.map((blocks) => ({
@@ -147,7 +173,7 @@ const colList = (...columns) => ({
     })),
   },
 });
-async function append(parentId, blocks) {
+async function append(parentId: string, blocks: Block[]) {
   for (let i = 0; i < blocks.length; i += 90) {
     await api(`blocks/${parentId}/children`, "PATCH", { children: blocks.slice(i, i + 90) });
   }
@@ -156,8 +182,8 @@ async function append(parentId, blocks) {
 // ─── discovery / idempotency ─────────────────────────────────────────────────
 /** Map of child databases under the Hub: lowercased title -> id. */
 async function hubChildDatabases() {
-  const map = {};
-  let cursor;
+  const map: Record<string, string> = {};
+  let cursor: string | undefined;
   do {
     const qs = cursor ? `?start_cursor=${cursor}` : "";
     const res = await api(`blocks/${HUB}/children${qs}`);
@@ -170,8 +196,8 @@ async function hubChildDatabases() {
 }
 
 /** First child page under the Hub with the given title, or null. */
-async function findHubChildPage(title) {
-  let cursor;
+async function findHubChildPage(title: string): Promise<string | null> {
+  let cursor: string | undefined;
   do {
     const qs = cursor ? `?start_cursor=${cursor}` : "";
     const res = await api(`blocks/${HUB}/children${qs}`);
@@ -183,7 +209,11 @@ async function findHubChildPage(title) {
   return null;
 }
 
-async function ensureDatabase(title, properties, existing) {
+async function ensureDatabase(
+  title: string,
+  properties: Record<string, unknown>,
+  existing: Record<string, string>,
+): Promise<string> {
   const found = existing[title.toLowerCase()];
   if (found) {
     console.log(`= ${title} exists (${found})`);
@@ -198,8 +228,10 @@ async function ensureDatabase(title, properties, existing) {
   return db.id;
 }
 
-const sel = (...names) => ({ select: { options: names.map((name) => ({ name })) } });
-const multi = (...names) => ({ multi_select: { options: names.map((name) => ({ name })) } });
+const sel = (...names: string[]) => ({ select: { options: names.map((name) => ({ name })) } });
+const multi = (...names: string[]) => ({
+  multi_select: { options: names.map((name) => ({ name })) },
+});
 
 // ─── build ───────────────────────────────────────────────────────────────────
 async function main() {
@@ -320,7 +352,7 @@ async function ensureDashboard() {
       icon: { type: "emoji", emoji: "🏠" },
       properties: { title: { title: RT("Dashboard") } },
     });
-    pageId = page.id;
+    pageId = page.id as string;
     console.log(`+ created Dashboard page (${pageId})`);
     await buildDashboardBody(pageId);
   } else if (flag("rebuild-dashboard")) {
@@ -335,9 +367,9 @@ async function ensureDashboard() {
   cache.__dashboard = { pageId, columns: await captureTileColumns(pageId) };
 }
 
-async function buildDashboardBody(pageId) {
+async function buildDashboardBody(pageId: string) {
   // Hero, then a compact one-line index linking to the rest of the workspace.
-  const indexLinks = [
+  const indexLinks: RichText[] = [
     link("Programs", cache.Programs),
     sep(),
     link("Goals", cache.Goals),
@@ -359,7 +391,7 @@ async function buildDashboardBody(pageId) {
   // Row 1: This Week | Goals | Body Stats
   await append(pageId, [
     colList(
-      // Tile header colors are canonical; keep in sync with TILE_COLORS in notion.mjs.
+      // Tile header colors are canonical; keep in sync with TILE_COLORS in notion.ts.
       [box("This Week", "📅", "gray_background"), bul("Log a session to populate this tile.")],
       [box("Goals", "🎯", "brown_background"), bul("Add a goal to populate this tile.")],
       [box("Body Stats", "⚖️", "red_background"), bul("Log a check-in to populate this tile.")],
@@ -396,7 +428,7 @@ async function ensureKnowledgeBase() {
       icon: { type: "emoji", emoji: "📚" },
       properties: { title: { title: RT("Knowledge Base") } },
     });
-    pageId = page.id;
+    pageId = page.id as string;
     await append(pageId, [
       box(
         "Training programs and reference material the coach draws on. Drop files in the repo's knowledge/ folder and ask the coach to import them.",
@@ -413,19 +445,19 @@ async function ensureKnowledgeBase() {
 }
 
 /** Capture every Dashboard tile column id, row by row, keyed by tile name.
- *  Row order matches buildDashboardBody; keep TILE_ROWS in notion.mjs in sync. */
+ *  Row order matches buildDashboardBody; keep TILE_ROWS in notion.ts in sync. */
 const TILE_ROWS = [
   ["thisWeek", "goals", "bodyStats"],
   ["nextSession", "activeProgram"],
   ["nutrition", "quickCommands"],
 ];
-async function captureTileColumns(pageId) {
+async function captureTileColumns(pageId: string): Promise<TileColumns> {
   const top = await api(`blocks/${pageId}/children`);
-  const lists = (top.results ?? []).filter((b) => b.type === "column_list");
-  const out = { listId: lists[0]?.id };
+  const lists = (top.results ?? []).filter((b: any) => b.type === "column_list");
+  const out: TileColumns = { listId: lists[0]?.id };
   for (let r = 0; r < lists.length && r < TILE_ROWS.length; r++) {
     const cols = await api(`blocks/${lists[r].id}/children`);
-    const ids = (cols.results ?? []).map((c) => c.id);
+    const ids = (cols.results ?? []).map((c: any) => c.id);
     TILE_ROWS[r].forEach((name, i) => {
       if (ids[i]) out[name] = ids[i];
     });

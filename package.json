@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "license": "MIT",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   },
   "scripts": {
     "build": "tsc",
@@ -14,8 +14,9 @@
     "dev": "tsx --env-file=.env src/index.ts",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "pretest": "tsc",
-    "test": "node --experimental-test-module-mocks --test scripts/*.test.mjs tests/*.test.mjs"
+    "pretest": "tsc && npm run typecheck",
+    "test": "node --experimental-test-module-mocks --test scripts/*.test.ts tests/*.test.ts",
+    "typecheck": "tsc -p scripts && tsc -p tests"
   },
   "overrides": {
     "adm-zip": "^0.6.0"

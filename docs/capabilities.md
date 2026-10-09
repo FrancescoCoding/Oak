@@ -50,11 +50,11 @@ provider is configurable via `TRANSCRIBE_PROVIDER`:
 The `find-exercises` skill pulls real movements from the free, keyless
 [free-exercise-db](https://github.com/yuhonas/free-exercise-db) dataset (~870
 exercises with muscles, equipment, level, instructions, and start/end demo
-images), released under The Unlicense (public domain). `scripts/exercise-db.mjs` downloads and caches the dataset, then filters:
+images), released under The Unlicense (public domain). `scripts/exercise-db.ts` downloads and caches the dataset, then filters:
 
 ```bash
-node scripts/exercise-db.mjs --muscle chest --equipment dumbbell --limit 6
-node scripts/exercise-db.mjs --name "romanian deadlift" --json
+node scripts/exercise-db.ts --muscle chest --equipment dumbbell --limit 6
+node scripts/exercise-db.ts --name "romanian deadlift" --json
 ```
 
 It honours your equipment and injuries from `PERSONAL.md` and can share both the
@@ -62,7 +62,7 @@ start and end demo image for a movement.
 
 ## Notion tooling
 
-The agent talks to Notion entirely through its REST API via `scripts/notion.mjs`
+The agent talks to Notion entirely through its REST API via `scripts/notion.ts`
 (there is no MCP server): logging rows, querying recent sessions, writing rich
 blocks (headings, callouts, dividers, tables, columns, with inline bold/italic/
 code/links), creating pages, and refreshing Dashboard tiles. The helper retries
@@ -78,7 +78,7 @@ material (PDF, Markdown, text, images, CSV) into the repo's `knowledge/` folder 
 ask the coach to import them. The `import-knowledge` skill reads each file,
 structures it (using vision for PDFs and images), and files it as an organised
 subpage under a **Knowledge Base** page in Notion via
-`scripts/notion.mjs create-page`. The raw dump stays local and gitignored; the
+`scripts/notion.ts create-page`. The raw dump stays local and gitignored; the
 durable, organised copy lives in Notion, and the coach draws on it when planning.
 
 ## Personas

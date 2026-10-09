@@ -116,7 +116,7 @@ function buildSessionContext(): string {
         fs.existsSync(path.join(PROJECT_ROOT, "config", "notion-hub.json"));
       parts.push(
         hubPinned
-          ? "id cache missing but a Hub page is pinned; the workspace likely already exists. Run `node scripts/notion.mjs resolve-workspace` (deterministic, read-only) to repopulate the cache before any Notion read, and never conclude the log is empty from a resolution failure"
+          ? "id cache missing but a Hub page is pinned; the workspace likely already exists. Run `node scripts/notion.ts resolve-workspace` (deterministic, read-only) to repopulate the cache before any Notion read, and never conclude the log is empty from a resolution failure"
           : "workspace not built yet (run setup-notion)",
       );
     }
@@ -126,7 +126,7 @@ function buildSessionContext(): string {
 
   parts.push(
     googleCalendarConfigured()
-      ? "Google Calendar configured (scripts/calendar.mjs; sync planned sessions per the calendar-sync skill)"
+      ? "Google Calendar configured (scripts/calendar.ts; sync planned sessions per the calendar-sync skill)"
       : "Google Calendar not configured (no calendar sync; reminders rely on the Telegram scheduler)",
   );
 
@@ -156,7 +156,7 @@ function buildSessionContext(): string {
  * Run the Claude agent for one incoming message.
  *
  *  - "standard" uses the full coaching model with tools, the coach plugin, and the
- *    Notion REST helpers (scripts/notion.mjs) run via Bash.
+ *    Notion REST helpers (scripts/notion.ts) run via Bash.
  *  - "fast" uses the cheaper model with the same tooling for trivial logging.
  *
  * Auth runs against the Claude subscription via CLAUDE_CODE_OAUTH_TOKEN (set in

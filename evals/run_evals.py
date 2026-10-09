@@ -4,7 +4,7 @@
 Drives the real agent headlessly through the Claude Code CLI (`claude -p`),
 so each scenario runs against the actual CLAUDE.md persona and skills on your
 Claude subscription. The agent under test can run the bundled Notion helper
-(scripts/notion.mjs and scripts/setup-workspace.mjs), so history checks and
+(scripts/notion.ts and scripts/setup-workspace.ts), so history checks and
 logging hit the real workspace; note that log scenarios write real rows.
 Everything else (Write, Edit, web access) stays disabled, and the judge runs
 with no tools at all.
@@ -62,7 +62,7 @@ EMOJI_RE = re.compile(
 # The agent under test gets real access to the Notion helper so history checks,
 # logging, and recommendations run against the actual workspace (log-workout
 # scenarios do write real rows). Everything else stays locked down.
-AGENT_ALLOWED_TOOLS = "Bash(node scripts/notion.mjs *),Bash(node scripts/setup-workspace.mjs *)"
+AGENT_ALLOWED_TOOLS = "Bash(node scripts/notion.ts *),Bash(node scripts/setup-workspace.ts *)"
 
 # Tools the agent under test must never reach for. Any attempt is a hard failure
 # in a recorded transcript, even if the sandbox already denied it.

@@ -20,7 +20,7 @@ export const config = {
   // Google Calendar. Optional: when absent, calendar features are disabled but
   // the bot still runs. The OAuth client id/secret come from Google Cloud
   // Console (Desktop app); the refresh token is minted once by
-  // `scripts/google-auth.mjs` and lives in data/google-token.json, or in
+  // `scripts/google-auth.ts` and lives in data/google-token.json, or in
   // GOOGLE_REFRESH_TOKEN for deployments backed by a secret store.
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",

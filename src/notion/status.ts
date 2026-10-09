@@ -4,7 +4,7 @@ import { config } from "../config.js";
  * Notion access.
  *
  * The agent talks to Notion exclusively through the REST API, driven by the
- * bundled `scripts/notion.mjs` and `scripts/setup-workspace.mjs` helpers (run via
+ * bundled `scripts/notion.ts` and `scripts/setup-workspace.ts` helpers (run via
  * Bash). There is no Notion MCP server: the REST API does everything the MCP
  * server did and more (rich blocks, tables, columns, database rows, icons), so
  * defaulting to it keeps pages well structured and avoids a second code path.

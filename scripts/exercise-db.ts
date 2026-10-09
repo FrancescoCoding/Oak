@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * exercise-db.mjs: query a free, keyless exercise database for the coach.
+ * exercise-db.ts: query a free, keyless exercise database for the coach.
  *
  * Data source: free-exercise-db (https://github.com/yuhonas/free-exercise-db),
  * a static JSON dataset of ~870 exercises with muscles, equipment, level,
@@ -9,7 +9,7 @@
  * in-process. Override the source with EXERCISE_DB_URL if you self-host a copy.
  *
  * Usage:
- *   node scripts/exercise-db.mjs [--muscle chest] [--equipment dumbbell]
+ *   node scripts/exercise-db.ts [--muscle chest] [--equipment dumbbell]
  *        [--level beginner] [--category strength] [--name "press"]
  *        [--limit 8] [--json] [--refresh]
  *
@@ -29,8 +29,29 @@ const IMAGE_BASE =
 const CACHE_FILE = path.resolve(process.cwd(), "data", "exercises.json");
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 
-function parseArgs(argv) {
-  const args = {};
+/** One record from the free-exercise-db dataset. */
+interface Exercise {
+  id: string;
+  name: string;
+  force: string | null;
+  level: string;
+  mechanic: string | null;
+  equipment: string | null;
+  primaryMuscles: string[];
+  secondaryMuscles: string[];
+  instructions: string[];
+  category: string;
+  images: string[];
+}
+
+/** CLI flags: `--key value`, or `true` for a bare `--flag`. */
+type Args = Record<string, string | true>;
+
+type FilterKey = "muscle" | "equipment" | "level" | "category" | "name";
+type Filters = Partial<Record<FilterKey, string | true>>;
+
+function parseArgs(argv: string[]): Args {
+  const args: Args = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) continue;
@@ -55,7 +76,7 @@ function cacheFresh() {
   }
 }
 
-async function loadDataset({ refresh }) {
+async function loadDataset({ refresh }: { refresh: boolean }): Promise<Exercise[]> {
   if (!refresh && cacheFresh()) {
     return JSON.parse(fs.readFileSync(CACHE_FILE, "utf8"));
   }
@@ -73,15 +94,15 @@ async function loadDataset({ refresh }) {
   return data;
 }
 
-const has = (haystack, needle) =>
+const has = (haystack: string | null | undefined, needle: string | true) =>
   String(haystack ?? "")
     .toLowerCase()
     .includes(String(needle).toLowerCase());
 
-function matches(ex, f) {
+function matches(ex: Exercise, f: Filters) {
   if (f.muscle) {
     const muscles = [...(ex.primaryMuscles ?? []), ...(ex.secondaryMuscles ?? [])];
-    if (!muscles.some((m) => has(m, f.muscle))) return false;
+    if (!muscles.some((m) => has(m, f.muscle!))) return false;
   }
   if (f.equipment && !has(ex.equipment, f.equipment)) return false;
   if (f.level && !has(ex.level, f.level)) return false;
@@ -90,7 +111,7 @@ function matches(ex, f) {
   return true;
 }
 
-function summarize(ex) {
+function summarize(ex: Exercise) {
   const imgs = ex.images ?? [];
   // Every record carries exactly two stills: 0 = start position, 1 = end position.
   return {
@@ -110,7 +131,7 @@ function summarize(ex) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const limit = Number.parseInt(args.limit ?? "8", 10);
+  const limit = Number.parseInt((args.limit ?? "8") as string, 10);
   const dataset = await loadDataset({ refresh: Boolean(args.refresh) });
   const filtered = dataset.filter((ex) => matches(ex, args)).slice(0, limit);
 
