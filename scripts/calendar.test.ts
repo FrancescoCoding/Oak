@@ -7,6 +7,7 @@ import {
   parseReminders,
   resolveWindow,
   toEventTime,
+  zoneOffset,
 } from "./calendar.ts";
 
 // ─── arg parsing ───────────────────────────────────────────────────────────────
@@ -124,15 +125,51 @@ test("buildEventBody: partial update includes only the provided fields", () => {
 
 // ─── list windows ──────────────────────────────────────────────────────────────
 
+test("zoneOffset: summer, winter, negative, and half-hour zones", () => {
+  assert.equal(zoneOffset("2026-07-13T00:00:00", "Europe/London"), "+01:00");
+  assert.equal(zoneOffset("2026-01-13T00:00:00", "Europe/London"), "+00:00");
+  assert.equal(zoneOffset("2026-07-13T00:00:00", "America/New_York"), "-04:00");
+  assert.equal(zoneOffset("2026-07-13T00:00:00", "Asia/Kolkata"), "+05:30");
+});
+
+test("zoneOffset: wall times either side of a DST change resolve to the right side", () => {
+  // BST ends at 02:00 local on Sunday 25 October 2026.
+  assert.equal(zoneOffset("2026-10-25T00:30:00", "Europe/London"), "+01:00");
+  assert.equal(zoneOffset("2026-10-25T03:00:00", "Europe/London"), "+00:00");
+});
+
+test("resolveWindow: bare dates are local midnight in the timezone, not UTC", () => {
+  const { timeMin, timeMax } = resolveWindow("2026-07-13", "2026-07-13", "Europe/London");
+  assert.equal(timeMin, "2026-07-13T00:00:00+01:00");
+  assert.equal(timeMax, "2026-07-13T23:59:59+01:00");
+  assert.equal(new Date(timeMin).toISOString(), "2026-07-12T23:00:00.000Z");
+});
+
 test("resolveWindow: --to defaults to 7 days after --from", () => {
-  const { timeMin, timeMax } = resolveWindow("2026-07-13", undefined);
-  assert.equal(timeMin, "2026-07-13T00:00:00");
-  assert.equal(timeMax, "2026-07-20T00:00:00");
+  const { timeMin, timeMax } = resolveWindow("2026-07-13", undefined, "Europe/London");
+  assert.equal(timeMin, "2026-07-13T00:00:00+01:00");
+  assert.equal(timeMax, "2026-07-20T00:00:00+01:00");
+});
+
+test("resolveWindow: each bound gets its own offset across a DST change", () => {
+  const { timeMin, timeMax } = resolveWindow("2026-10-20", undefined, "Europe/London");
+  assert.equal(timeMin, "2026-10-20T00:00:00+01:00");
+  assert.equal(timeMax, "2026-10-27T00:00:00+00:00");
 });
 
 test("resolveWindow: a bare --to date spans through the end of that day", () => {
-  const { timeMax } = resolveWindow("2026-07-13", "2026-07-15");
-  assert.equal(timeMax, "2026-07-15T23:59:59");
+  const { timeMax } = resolveWindow("2026-07-13", "2026-07-15", "America/New_York");
+  assert.equal(timeMax, "2026-07-15T23:59:59-04:00");
+});
+
+test("resolveWindow: local datetimes get the offset, explicit offsets are kept", () => {
+  const { timeMin, timeMax } = resolveWindow(
+    "2026-07-13T18:00",
+    "2026-07-13T20:00:00Z",
+    "Asia/Kolkata",
+  );
+  assert.equal(timeMin, "2026-07-13T18:00:00+05:30");
+  assert.equal(timeMax, "2026-07-13T20:00:00Z");
 });
 
 test("resolveWindow: --from is required", () => {

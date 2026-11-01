@@ -329,9 +329,30 @@ function buildEventBody(
 }
 
 /**
+ * The UTC offset ("+01:00", "-04:00", "+05:30") that timeZone observes at a
+ * local wall-clock time like "2026-07-13T00:00:00". Two passes: the first
+ * offset is read at the wall time taken as UTC, the second at the instant that
+ * offset implies, so boundaries near a DST change resolve to the right side.
+ */
+function zoneOffset(localDateTime: string, timeZone = TIMEZONE): string {
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longOffset" });
+  const offsetAt = (ms: number) => {
+    const name = fmt.formatToParts(ms).find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+    // ICU prints a zero offset as bare "GMT" rather than "GMT+00:00".
+    return name === "GMT" ? "+00:00" : name.slice(3);
+  };
+  const toMinutes = (offset: string) =>
+    (offset[0] === "-" ? -1 : 1) * (Number(offset.slice(1, 3)) * 60 + Number(offset.slice(4, 6)));
+  const wallMs = Date.parse(`${localDateTime}Z`);
+  return offsetAt(wallMs - toMinutes(offsetAt(wallMs)) * 60 * 1000);
+}
+
+/**
  * Resolve a --from/--to pair into an RFC3339 window. --from defaults to today
  * is not assumed (the caller passes the date from the Telegram header); --to
- * defaults to 7 days after --from. Bare dates span from local midnight.
+ * defaults to 7 days after --from. Bare dates span from local midnight. Every
+ * bound without an explicit Z/offset gets timeZone's offset for that date, so
+ * the window is local time, even when it crosses a DST change.
  */
 function resolveWindow(
   from: string | true | undefined,
@@ -339,17 +360,20 @@ function resolveWindow(
   timeZone = TIMEZONE,
 ): { timeMin: string; timeMax: string } {
   if (!from) throw new Error("--from is required (YYYY-MM-DD or an ISO datetime).");
+  const pin = (t: EventTime, localTime: string) => {
+    const local = t.date ? `${t.date}T${localTime}` : t.dateTime!;
+    return t.date || t.timeZone ? `${local}${zoneOffset(local, timeZone)}` : local;
+  };
   const start = toEventTime(String(from), timeZone);
-  const timeMin = start.date ? `${start.date}T00:00:00` : start.dateTime!;
+  const timeMin = pin(start, "00:00:00");
   let timeMax: string;
   if (to) {
-    const end = toEventTime(String(to), timeZone);
     // A bare --to date means "through the end of that day".
-    timeMax = end.date ? `${end.date}T23:59:59` : end.dateTime!;
+    timeMax = pin(toEventTime(String(to), timeZone), "23:59:59");
   } else {
     const base = new Date(`${timeMin.slice(0, 10)}T00:00:00Z`);
     base.setUTCDate(base.getUTCDate() + 7);
-    timeMax = `${base.toISOString().slice(0, 10)}T00:00:00`;
+    timeMax = pin({ date: base.toISOString().slice(0, 10) }, "00:00:00");
   }
   return { timeMin, timeMax };
 }
@@ -383,8 +407,8 @@ async function cmdStatus() {
 async function cmdList(args: Args) {
   const { timeMin, timeMax } = resolveWindow(args.from, args.to);
   const params = new URLSearchParams({
-    timeMin: new Date(`${timeMin}${/Z|[+-]\d{2}:\d{2}$/.test(timeMin) ? "" : "Z"}`).toISOString(),
-    timeMax: new Date(`${timeMax}${/Z|[+-]\d{2}:\d{2}$/.test(timeMax) ? "" : "Z"}`).toISOString(),
+    timeMin: new Date(timeMin).toISOString(),
+    timeMax: new Date(timeMax).toISOString(),
     singleEvents: "true",
     orderBy: "startTime",
     maxResults: String(args.limit ?? 50),
@@ -499,4 +523,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
 }
 
-export { parseArgs, toEventTime, parseReminders, buildEventBody, resolveWindow, formatEventLine };
+export {
+  parseArgs,
+  toEventTime,
+  parseReminders,
+  buildEventBody,
+  zoneOffset,
+  resolveWindow,
+  formatEventLine,
+};
