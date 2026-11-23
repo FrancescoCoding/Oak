@@ -21,6 +21,31 @@ docker run -d --name fitcoach --env-file .env -v fitcoach-data:/data -p 8080:808
 `/data` holds sessions, the schedule, and the Notion id cache; mount it as a
 volume so they survive restarts. `/healthz` on port 8080 reports health.
 
+### Where the data directory lives
+
+There is one data directory, `data/` next to `scripts/`. Locally that is
+`./data`. In the image, `/app/data` is a symlink to `/data/data` on the volume,
+and `entrypoint.sh` creates `/data/data` at startup (the mount hides anything
+built into the image). So the bundled scripts, the app, and the agent all see
+the same `notion-ids.json`, `google-token.json` and `exercises.json` from the
+default working directory `/app`. The scripts resolve `data/` from their own
+location, not the working directory, so running them from somewhere else
+still finds the same cache.
+
+It is `/data/data` rather than the volume root because that is where earlier
+versions wrote their newest caches, so an existing volume keeps them with no
+migration. If a volume only has a copy at the root (for example
+`/data/notion-ids.json`), the entrypoint copies it into `/data/data` once
+without overwriting anything. Leftover copies at the root are unused and
+safe to delete. Sessions and the schedule stay at `/data/sessions.json` and
+`/data/schedule.json` (`SESSION_FILE`, `SCHEDULE_FILE`).
+
+The app's own `./data` defaults land there too: the run log
+(`agent-runs.jsonl`, which `/stats` reads; set `RUN_LOG_FILE` to move it) and
+the Google token. Before this the container could not write `/app/data`, so
+expect the run log to start growing in the bucket and calendar status to report
+"configured" once a token is present there.
+
 > Only one instance may poll a given bot token at a time. If you also run it
 > locally while a deployed copy is up, Telegram returns a 409 conflict. Stop one,
 > or use a separate bot token for local development.

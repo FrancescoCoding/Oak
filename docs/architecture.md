@@ -13,7 +13,11 @@ grammy bot  (src/index.ts)                ── allowlist, dedupe, attachments,
   ├─ voice note ─► local Whisper (src/media/transcribe.ts) ─► text
   │
   ▼
+chat queue  (src/channel/chat-queue.ts)    ── one turn at a time per chat; messages that
+  │                                           wait behind a turn are merged into the next
+  ▼
 runAgent  (src/agent/runner.ts)            ── Claude Agent SDK query()
+  │   • tool activity ─► status message (src/channel/progress.ts), long runs only
   │   • persona overlay (src/agent/personalities.ts)
   │   • session resume   (src/agent/sessions.ts)
   │   • CLAUDE.md persona + coach-plugin skills
@@ -38,11 +42,43 @@ generic while the running agent is personalised to you.
 | `src/index.ts` | Entry point and composition root: wires the bot, scheduler, and HTTP servers. |
 | `src/config.ts` | Central env-driven configuration. |
 | `src/agent/` | The agent loop (`runner.ts`), persona overlays (`personalities.ts`), and per-chat session store (`sessions.ts`). |
-| `src/channel/` | Telegram transport: `notify.ts` (send), `format.ts` (markdown→HTML, em-dash strip), `webhook-server.ts`, `permissions.ts` (allowlist). |
+| `src/channel/` | Telegram transport: `notify.ts` (send), `format.ts` (markdown→HTML, em-dash strip), `webhook-server.ts`, `permissions.ts` (allowlist), `chat-queue.ts` (per-chat serialisation and message coalescing), `progress.ts` (the status message shown during long runs). |
 | `src/media/` | Inbound media: `attachments.ts` (images/PDFs → content blocks), `transcribe.ts` (voice notes → text). |
 | `src/notion/` | `status.ts` reports whether Notion is configured (a `NOTION_TOKEN` is set). All Notion I/O goes through `scripts/notion.ts` via Bash. |
 | `src/scheduler/` | `scheduler.ts` (croner reminders) and `server.ts` (the localhost control plane). |
 | `src/util/` | `redact.ts` (secret scrubbing) and `dedupe.ts` (webhook idempotency). |
+
+## Concurrency and progress
+
+Chat messages for the same chat never run in parallel. Two overlapping runs would
+either start two Claude sessions (each redoing onboarding) or race to resume the
+same one. Every
+inbound message takes its place in the chat's queue on arrival, before attachments
+download or a voice note is transcribed, so arrival order holds even when one
+message prepares slowly. Messages that pile up behind a running turn are handed to
+the next turn together, joined in order with their attachments, so three quick
+messages cost one extra run rather than three. When merged messages carry photos
+or PDFs, each text is tagged with its attachment numbers ("lunch (attachment 2)")
+so a caption stays with its photo; an album counts as one message. `/new` waits
+its turn in the same queue. Different chats run in parallel, up to a global cap of
+two agent processes for chat messages. Scheduled reminders go through the
+same per-chat queue, so a reminder never runs alongside a message for its chat;
+they sit outside the global cap.
+
+There is no overall time limit on a run, so a run that never returns holds up its
+chat's queue, `/new` included, until the instance restarts or scales to zero.
+Other chats are unaffected. This is accepted for now: Bash calls have their own
+tool timeout and a run stops after at most 60 turns, so a true hang is unlikely.
+
+The Telegram handler does not wait for the run, so in polling mode one long turn no
+longer holds up updates for other chats.
+
+While a run is going, the runner reports each tool call. If the run passes about
+9 seconds, the chat gets one silent status message ("Checking your training
+log...", "Writing it up in Notion...") that is edited in place as the phase
+changes, at most once every few seconds, and deleted when the reply arrives. The
+labels come from a fixed table and never include the command. Set
+`PROGRESS_UPDATES=false` to turn this off.
 
 ## Bundled scripts
 
@@ -51,7 +87,7 @@ plus deploy helpers:
 
 | Script | Purpose |
 |---|---|
-| `scripts/notion.ts` | Notion REST helper: `log`, `query-recent`, `append` (rich blocks + columns + inline formatting), `create-page`, `refresh-tile`, `resolve-db`. Retries on rate limits; self-heals a stale id cache. Unit-tested by `scripts/notion.test.ts` (`npm test`). |
+| `scripts/notion.ts` | Notion REST helper: `log`, `query-recent` (`--with-blocks` adds each row's page body), `get-page-blocks`, `resolve-workspace`, `append` (rich blocks + columns + inline formatting), `create-page`, `refresh-tile`, `resolve-db`. Retries on rate limits; self-heals a stale id cache. Unit-tested by `scripts/notion.test.ts` (`npm test`). |
 | `scripts/setup-workspace.ts` | Idempotent builder for the full Notion workspace (databases + Dashboard). See [notion-architecture.md](./notion-architecture.md). |
 | `scripts/exercise-db.ts` | Queries the free, keyless exercise dataset (see [capabilities.md](./capabilities.md)). |
 | `scripts/deploy-cloudrun.sh` | Google Cloud Run deploy (see [deployment.md](./deployment.md)). |
