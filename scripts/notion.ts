@@ -27,6 +27,8 @@
  *   node scripts/notion.ts resolve-workspace        # rebuild the id cache from the pinned Hub
  *   node scripts/notion.ts resolve-db --name "Workout Log"
  *   node scripts/notion.ts query-recent --db "Workout Log" --focus Push --limit 3
+ *   node scripts/notion.ts query-recent --db "Workout Log" --limit 3 --with-blocks
+ *   node scripts/notion.ts get-page-blocks <pageId> [<pageId> ...] [--json]
  *   node scripts/notion.ts log --db "Workout Log" \
  *        --set "Session=Push A" --set "Focus=Push" --set "Date=2026-06-23" \
  *        --set "RPE=8" --set "Exercises=Bench 5x5 @60kg; OHP 3x8 @40kg"
@@ -43,7 +45,11 @@ import { pathToFileURL } from "node:url";
 const TOKEN = process.env.NOTION_TOKEN;
 const NOTION_VERSION = process.env.NOTION_VERSION ?? "2022-06-28";
 const API = "https://api.notion.com/v1";
-const CACHE_FILE = path.resolve(process.cwd(), "data", "notion-ids.json");
+// Paths are resolved from this file, not cwd, so the agent finds the same id
+// cache whatever directory it runs the script from. In the container
+// /app/data links into the durable volume (see docs/deployment.md).
+const ROOT = path.resolve(import.meta.dirname, "..");
+const CACHE_FILE = path.join(ROOT, "data", "notion-ids.json");
 
 // Retry tuning for rate limits (429) and transient 5xx responses.
 const MAX_RETRIES = 5;
@@ -51,9 +57,11 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ─── arg parsing (supports repeated --set) ──────────────────────────────────
 
-/** Parsed CLI flags. A bare flag with no value (e.g. --dry-run) parses as `true`. */
+/** Parsed CLI flags. A bare flag with no value (e.g. --dry-run) parses as `true`.
+ *  Bare words (not flags or flag values) collect in `_`, e.g. page ids. */
 type Args = {
   set: string[];
+  _: string[];
   name?: string;
   db?: string;
   focus?: string;
@@ -67,17 +75,27 @@ type Args = {
   tile?: string;
   column?: string;
   now?: string;
+  depth?: string;
   "dry-run"?: string | true;
+  json?: string | true;
+  "with-blocks"?: string | true;
 };
 
+// Flags that never take a value, so "--json <pageId>" keeps the id as a bare word.
+const BOOLEAN_FLAGS = new Set(["dry-run", "json", "with-blocks"]);
+
 function parseArgs(argv: string[]): Args {
-  const args: Args = { set: [] };
+  const args: Args = { set: [], _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (!a.startsWith("--")) continue;
+    if (!a.startsWith("--")) {
+      args._.push(a);
+      continue;
+    }
     const key = a.slice(2);
     const next = argv[i + 1];
-    const val = next === undefined || next.startsWith("--") ? true : (i++, next);
+    const val =
+      BOOLEAN_FLAGS.has(key) || next === undefined || next.startsWith("--") ? true : (i++, next);
     if (key === "set") args.set.push(val as string);
     else (args as Record<string, unknown>)[key] = val;
   }
@@ -114,7 +132,9 @@ async function notion(pathname: string, method?: string, body?: unknown): Promis
 
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(`Notion ${method} ${pathname} -> ${res.status}: ${json.message ?? ""}`);
+      throw new Error(
+        `Notion ${method ?? "GET"} ${pathname} -> ${res.status}: ${json.message ?? ""}`,
+      );
     }
     return json;
   }
@@ -167,7 +187,7 @@ const normId = (id?: string) => (id ?? "").replace(/-/g, "").toLowerCase();
 // stranger's database of the same name. Resolution order: id cache, then the
 // NOTION_PARENT_PAGE_ID env var, then config/notion-hub.json (a gitignored local
 // pin, copied from its .example, that survives restarts where the data/ cache starts empty).
-const HUB_PIN_FILE = path.resolve(process.cwd(), "config", "notion-hub.json");
+const HUB_PIN_FILE = path.join(ROOT, "config", "notion-hub.json");
 function hubId() {
   const cache = readCache();
   let pinned: string | undefined;
@@ -839,6 +859,153 @@ async function replaceTileContent(columnId: string, md: string, forceColor?: str
   return blocks.length;
 }
 
+// ─── reading page bodies ─────────────────────────────────────────────────────
+
+/** A block as the API returns it, with its fetched children attached. */
+interface BlockNode {
+  id: string;
+  type: string;
+  has_children?: boolean;
+  children?: BlockNode[];
+  /** Set when the block has children that the depth cap left unfetched. */
+  truncated?: boolean;
+  [payload: string]: any;
+}
+
+// Enough for column_list > column > table > table_row, the deepest shape the
+// coach writes, plus one spare level for a nested list or toggle.
+const DEFAULT_DEPTH = 4;
+
+// Child pages and databases report has_children too, but they are separate
+// documents: recursing into them from the Hub would crawl the whole workspace.
+const NO_RECURSE = new Set(["child_page", "child_database"]);
+
+/**
+ * Fetch a page's blocks, recursing into children up to `depth` levels (the
+ * page's own children are level 1). The lister is injectable for tests.
+ */
+async function fetchBlockTree(
+  blockId: string,
+  depth = DEFAULT_DEPTH,
+  list: (id: string) => Promise<any[]> = listChildren,
+): Promise<BlockNode[]> {
+  const blocks: BlockNode[] = await list(blockId);
+  for (const b of blocks) {
+    if (!b.has_children || NO_RECURSE.has(b.type)) continue;
+    if (depth > 1) b.children = await fetchBlockTree(b.id, depth - 1, list);
+    else b.truncated = true;
+  }
+  return blocks;
+}
+
+const richPlain = (rich?: any[]) => (rich ?? []).map((t: any) => t.plain_text ?? "").join("");
+
+/**
+ * Render a block tree as compact markdown-ish text for the model to read.
+ * Unknown types print as a "[type]" placeholder and depth-capped children
+ * print a marker, so the reader never mistakes a partial body for a whole one.
+ */
+function renderBlocks(blocks: BlockNode[], indent = ""): string[] {
+  const out: string[] = [];
+  const nested = `${indent}  `;
+  let num = 0;
+  for (const b of blocks) {
+    const data = b[b.type] ?? {};
+    const text = richPlain(data.rich_text);
+    num = b.type === "numbered_list_item" ? num + 1 : 0;
+    // Layout wrappers add no text of their own; their children stay at this level.
+    let childIndent = nested;
+    let line: string | undefined;
+
+    switch (b.type) {
+      case "paragraph":
+        line = text || undefined;
+        break;
+      case "heading_1":
+      case "heading_2":
+      case "heading_3":
+        line = `${"#".repeat(Number(b.type.slice(-1)))} ${text}`;
+        break;
+      case "bulleted_list_item":
+      case "toggle":
+        line = `- ${text}`;
+        break;
+      case "numbered_list_item":
+        line = `${num}. ${text}`;
+        break;
+      case "to_do":
+        line = `- [${data.checked ? "x" : " "}] ${text}`;
+        break;
+      case "quote":
+        line = `> ${text}`;
+        break;
+      case "callout":
+        line = `> ${data.icon?.emoji ? `${data.icon.emoji} ` : ""}${text}`;
+        break;
+      case "code":
+        line = `\`\`\`${data.language ?? ""}\n${text}\n\`\`\``;
+        break;
+      case "divider":
+        line = "---";
+        break;
+      case "equation":
+        line = data.expression ?? "";
+        break;
+      case "table": {
+        const rows = (b.children ?? [])
+          .filter((r) => r.type === "table_row")
+          .map((r) => `| ${(r.table_row?.cells ?? []).map(richPlain).join(" | ")} |`);
+        if (data.has_column_header && rows.length) {
+          const width = b.children?.[0]?.table_row?.cells?.length ?? 1;
+          rows.splice(1, 0, `|${" --- |".repeat(width)}`);
+        }
+        out.push(...rows.map((r) => indent + r));
+        if (b.truncated) out.push(`${indent}(table rows not fetched; raise --depth)`);
+        continue;
+      }
+      case "column_list":
+      case "column":
+      case "synced_block":
+        childIndent = indent;
+        break;
+      case "child_page":
+      case "child_database":
+        line = `[${b.type === "child_page" ? "page" : "database"}] ${data.title ?? ""} (${b.id})`;
+        break;
+      case "image":
+      case "video":
+      case "audio":
+      case "file":
+      case "pdf":
+        line = `[${b.type}] ${richPlain(data.caption) || data.name || data.external?.url || data.file?.url || ""}`;
+        break;
+      case "bookmark":
+      case "embed":
+      case "link_preview":
+        line = `[link] ${data.url ?? ""}`;
+        break;
+      case "table_of_contents":
+      case "breadcrumb":
+        break;
+      default:
+        line = `[${b.type}]${text ? ` ${text}` : ""}`;
+    }
+
+    if (line !== undefined) out.push(...line.split("\n").map((l) => indent + l));
+    if (b.children) out.push(...renderBlocks(b.children, childIndent));
+    if (b.truncated) out.push(`${childIndent}(nested content not fetched; raise --depth)`);
+  }
+  return out;
+}
+
+function parseDepth(raw?: string) {
+  if (raw === undefined) return DEFAULT_DEPTH;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isInteger(n) || n < 1)
+    throw new Error(`--depth must be a positive integer, got "${raw}"`);
+  return n;
+}
+
 // ─── commands ────────────────────────────────────────────────────────────────
 /** Body of a database query request. */
 interface QueryBody {
@@ -877,6 +1044,7 @@ async function cmdQueryRecent(args: Args) {
   const rpeProp = byName("rpe");
   const exProp = byName("exercise");
 
+  const depth = parseDepth(args.depth);
   let p: Record<string, any>;
   const get = (name?: string) => readProp(name ? p[name] : null);
   for (const page of res.results) {
@@ -884,9 +1052,58 @@ async function cmdQueryRecent(args: Args) {
     const parts = [get(dateProp), get(titleProp)];
     if (focusProp) parts.push(`Focus: ${get(focusProp)}`);
     if (rpeProp) parts.push(`RPE: ${get(rpeProp)}`);
+    // The id lets the caller read a row's body with get-page-blocks without
+    // another lookup.
+    parts.push(`id: ${page.id}`);
     console.log(`- ${parts.filter(Boolean).join(" | ")}`);
     if (exProp && get(exProp)) console.log(`    ${get(exProp)}`);
+    // --with-blocks inlines each row's page body, since the sets and notes live
+    // there, so "recent sessions in full" is one command instead of 1 + N.
+    if (args["with-blocks"]) {
+      try {
+        const lines = renderBlocks(await fetchBlockTree(page.id, depth));
+        for (const l of lines.length ? lines : ["(empty page)"]) console.log(`    ${l}`);
+      } catch (err) {
+        console.log(`    (could not read page body: ${(err as Error).message})`);
+        process.exitCode = 1;
+      }
+    }
   }
+}
+
+/**
+ * Print the body of one or more pages (e.g. Workout Log entries, whose sets,
+ * loads, and notes live in the blocks, not the row properties). Accepts several
+ * ids so a few sessions can be read in one call. One bad id prints an error
+ * under its header and fails the exit code without losing the other pages.
+ */
+async function cmdGetPageBlocks(args: Args) {
+  const ids = [...args._, ...(typeof args.page === "string" ? [args.page] : [])]
+    .flatMap((s) => s.split(","))
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!ids.length) {
+    throw new Error("Pass one or more page ids: get-page-blocks <pageId> [<pageId> ...]");
+  }
+  const depth = parseDepth(args.depth);
+  const json: { pageId: string; blocks?: BlockNode[]; error?: string }[] = [];
+  for (const id of ids) {
+    try {
+      const blocks = await fetchBlockTree(id, depth);
+      if (args.json) {
+        json.push({ pageId: id, blocks });
+        continue;
+      }
+      const lines = renderBlocks(blocks);
+      console.log(`### Page ${id}\n${lines.length ? lines.join("\n") : "(empty page)"}\n`);
+    } catch (err) {
+      process.exitCode = 1;
+      const message = (err as Error).message;
+      if (args.json) json.push({ pageId: id, error: message });
+      else console.log(`### Page ${id}\n(error: ${message})\n`);
+    }
+  }
+  if (args.json) console.log(JSON.stringify(json, null, 2));
 }
 
 async function cmdLog(args: Args) {
@@ -950,8 +1167,9 @@ async function cmdRefreshTile(args: Args) {
 /**
  * Rebuild the three Row 1 Dashboard tiles (This Week, Goals, Body Stats) directly
  * from the databases, so they are always consistent with the data and never carry
- * hand-written (fabricated) numbers. The agent calls this once after any data
- * change instead of hand-building each tile. --now <YYYY-MM-DD> sets "this week"
+ * hand-written (fabricated) numbers. The host runs this after a run that
+ * wrote rows (the agent does when HOST_DASHBOARD_SYNC is off), so tiles are never
+ * hand-built. --now <YYYY-MM-DD> sets "this week"
  * from the chat header date (defaults to the system date).
  */
 async function cmdSyncDashboard(args: Args) {
@@ -1091,13 +1309,14 @@ async function cmdResolveWorkspace() {
   console.log(`Databases: ${dbs.join(", ") || "none"}`);
   console.log(`Knowledge Base: ${cache.__knowledgeBase ?? "not found"}`);
   console.log(`Dashboard: ${dashboard}`);
-  console.log("Ids cached to data/notion-ids.json");
+  console.log(`Ids cached to ${CACHE_FILE}`);
 }
 
 const COMMANDS: Record<string, (args: Args) => Promise<void>> = {
   "resolve-db": cmdResolveDb,
   "resolve-workspace": cmdResolveWorkspace,
   "query-recent": cmdQueryRecent,
+  "get-page-blocks": cmdGetPageBlocks,
   log: cmdLog,
   append: cmdAppend,
   "refresh-tile": cmdRefreshTile,
@@ -1105,16 +1324,39 @@ const COMMANDS: Record<string, (args: Args) => Promise<void>> = {
   "create-page": cmdCreatePage,
 };
 
+const USAGE = `Usage: node scripts/notion.ts <command> [flags]
+
+  resolve-workspace                      rebuild the id cache from the pinned Hub
+  resolve-db --name "Workout Log"        print (and cache) a database id
+  query-recent --db "Workout Log" [--focus Push] [--limit 3] [--with-blocks] [--depth 4]
+                                         recent rows, newest first, each with its page id;
+                                         --with-blocks also prints each row's page body
+  get-page-blocks <pageId> [<pageId> ...] [--json] [--depth 4]
+                                         print page bodies (sets, loads, notes) as text
+  log --db "Workout Log" --set "Prop=value" ... [--dry-run]
+  append --page <id> (--md "..." | --file x.md)
+  create-page --parent <id> --title "..." [--icon 🏋️] [--md "..." | --file x.md]
+  refresh-tile (--tile <name> | --column <id>) (--md "..." | --file x.md)
+  sync-dashboard [--now YYYY-MM-DD]
+
+Id cache: ${CACHE_FILE}`;
+
 async function main() {
-  if (!TOKEN) {
-    console.error("NOTION_TOKEN is not set. Notion is not configured.");
+  const [command, ...rest] = process.argv.slice(2);
+  // Help works without a token so the usage is always discoverable, and
+  // "<command> --help" must print it rather than run the command.
+  if (!command || ["help", "--help", "-h"].includes(command) || rest.includes("--help")) {
+    console.log(USAGE);
+    return;
+  }
+  const fn = COMMANDS[command];
+  if (!fn) {
+    console.error(`Unknown command "${command}".\n\n${USAGE}`);
     process.exitCode = 1;
     return;
   }
-  const [command, ...rest] = process.argv.slice(2);
-  const fn = COMMANDS[command];
-  if (!fn) {
-    console.error(`Unknown command "${command}". Use one of: ${Object.keys(COMMANDS).join(", ")}`);
+  if (!TOKEN) {
+    console.error("NOTION_TOKEN is not set. Notion is not configured.");
     process.exitCode = 1;
     return;
   }
@@ -1131,6 +1373,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 
 export {
+  CACHE_FILE,
+  parseArgs,
+  fetchBlockTree,
+  renderBlocks,
   parseInline,
   markdownToBlocks,
   buildPropertyValue,
