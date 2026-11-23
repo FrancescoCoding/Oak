@@ -52,6 +52,8 @@ After setting the client id and secret, authorise once with
 | `CLAUDE_MODEL_FAST` | `claude-haiku-4-5` | Cheaper model used for trivial logging messages, only when `FAST_TIER_ENABLED=true`. |
 | `FAST_TIER_ENABLED` | `false` | When `true`, short transactional logging messages on new chats route to `CLAUDE_MODEL_FAST` to save subscription usage. Off by default so every message uses `CLAUDE_MODEL` for consistent behaviour. |
 | `REASONING_EFFORT` | `medium` | Thinking depth for the standard model: `low \| medium \| high \| xhigh \| max`. Lower is faster and cheaper. |
+| `PROGRESS_UPDATES` | `true` | On runs that take more than a few seconds, post one short status message ("Logging your session...") that is edited as the run moves on and removed when the reply lands. Quick runs show nothing. `false` (or `0`, `off`, `no`) disables it. |
+| `HOST_DASHBOARD_SYNC` | `true` | After a run that logged rows with the Notion helper's `log` command, the host runs `scripts/notion.ts sync-dashboard` in the background once the reply is sent, instead of the agent doing it inside its turn (which added 9 to 17 seconds to every logging reply). Overlapping syncs are collapsed into one. `false` (or `0`, `off`, `no`) hands the job back to the agent: the session context then tells it to run the sync itself. See [observability.md](./observability.md#host-dashboard-sync). |
 | `PERSONALITIES_ENABLED` | `true` | Persona overlays (owner gets Arnold, others a stable random character). `false` keeps everyone on the plain coach. See [customization.md](./customization.md). |
 
 ## Storage
