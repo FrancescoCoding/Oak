@@ -28,7 +28,10 @@ import path from "node:path";
 
 const TOKEN = process.env.NOTION_TOKEN;
 const API = "https://api.notion.com/v1";
-const CACHE_FILE = path.resolve(process.cwd(), "data", "notion-ids.json");
+// Paths are resolved from this file, not cwd, so the cache is the same one
+// notion.ts reads wherever the script is run from (see docs/deployment.md).
+const ROOT = path.resolve(import.meta.dirname, "..");
+const CACHE_FILE = path.join(ROOT, "data", "notion-ids.json");
 
 if (!TOKEN) {
   console.error("NOTION_TOKEN is not set. Notion is not configured.");
@@ -47,9 +50,8 @@ const opt = (name: string): string | undefined => {
 // with an empty data/ mount can still rebuild against the right workspace.
 function pinnedHub(): string | undefined {
   try {
-    return JSON.parse(
-      fs.readFileSync(path.resolve(process.cwd(), "config", "notion-hub.json"), "utf8"),
-    ).hubPageId;
+    return JSON.parse(fs.readFileSync(path.join(ROOT, "config", "notion-hub.json"), "utf8"))
+      .hubPageId;
   } catch {
     return undefined;
   }
