@@ -70,12 +70,11 @@ If the user flags an injury or pain while logging (not normal training soreness)
 
 ## 3. Keep the Dashboard current
 
-Do both of these in the same turn, before replying:
+Do not run `sync-dashboard` yourself: after a `log` write the host re-derives the This Week, Goals, and Body Stats tiles right after your reply. The one exception: if the `[context]` line says "host Dashboard sync is off", run it once yourself after logging.
 
-1. Run `node scripts/notion.ts sync-dashboard --now <YYYY-MM-DD from the Telegram header>` to re-derive the This Week, Goals, and Body Stats tiles from the databases.
-2. Refresh the **Next Session** tile. The session just logged is no longer "next": work out what actually comes next from the weekly plan (or the active program's schedule) and rewrite the tile with `node scripts/notion.ts refresh-tile` (tile ids in `data/notion-ids.json` under `__dashboard.columns`; content format in the notion-formatting skill). If no plan tells you what is next, put a short honest placeholder ("Next session not planned yet, ask me to plan the week") rather than leaving the completed session showing.
+In the same turn, before replying, refresh the **Next Session** tile. The session just logged is no longer "next": work out what actually comes next from the weekly plan (or the active program's schedule) and rewrite the tile with `node scripts/notion.ts refresh-tile` (tile ids in `data/notion-ids.json` under `__dashboard.columns`; content format in the notion-formatting skill). If no plan tells you what is next, put a short honest placeholder ("Next session not planned yet, ask me to plan the week") rather than leaving the completed session showing.
 
-`sync-dashboard` alone is not enough: it does not touch the prose tiles, and a Next Session tile still showing the workout that was just logged is exactly the staleness to avoid.
+The host sync does not touch the prose tiles, and a Next Session tile still showing the workout that was just logged is exactly the staleness to avoid.
 
 ## 4. Confirm and encourage
 

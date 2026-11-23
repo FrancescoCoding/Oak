@@ -5,9 +5,15 @@ import { aggregateStats, readRunRecords } from "./agent/runlog.js";
 import { classifyQuery, runAgent } from "./agent/runner.js";
 import { clearSession, evictExpired, getSession } from "./agent/sessions.js";
 import { googleCalendarConfigured } from "./calendar/status.js";
+import { chatQueue, joinMessages } from "./channel/chat-queue.js";
 import { toPlainText, toTelegramHtml } from "./channel/format.js";
 import { registerBot, sendMessage, splitMessage } from "./channel/notify.js";
 import { isAllowed } from "./channel/permissions.js";
+import {
+  ProgressReporter,
+  type StatusTransport,
+  progressUpdatesEnabled,
+} from "./channel/progress.js";
 import { registerTelegramWebhook, startWebhookServer } from "./channel/webhook-server.js";
 import { checkClaudeAuth, config } from "./config.js";
 import { type Attachment, isSupportedAttachment } from "./media/attachments.js";
@@ -138,33 +144,57 @@ function buildStatsReply(): string {
 
 // ─── Message handling ────────────────────────────────────────────────
 
-async function handle(opts: {
-  chatId: string;
-  userId: number;
+/** One inbound message, downloaded and transcribed, ready for the agent. */
+interface ChatMessage {
   userLabel: string;
   text: string;
   attachments: Attachment[];
+  /** Album id, so coalescing keeps an album's caption with all of its photos. */
+  group?: string;
   replyTo: (text: string) => Promise<void>;
   typing: () => Promise<void>;
-}) {
-  const { chatId, userLabel, text, attachments, replyTo, typing } = opts;
+}
+
+/** The status message lives in the chat itself; sent silently so it never buzzes the phone. */
+function statusTransport(chatId: string): StatusTransport {
+  return {
+    send: async (text) =>
+      (await bot.api.sendMessage(chatId, text, { disable_notification: true })).message_id,
+    edit: (id, text) => bot.api.editMessageText(chatId, id, text),
+    remove: (id) => bot.api.deleteMessage(chatId, id),
+  };
+}
+
+/**
+ * Run one agent turn for a chat. Called through chatQueue, so it never overlaps
+ * another run for the same chat; batch holds every message that queued up
+ * behind the previous run, oldest first.
+ */
+async function handle(chatId: string, batch: ChatMessage[]) {
+  const { text, attachments } = joinMessages(batch);
+  // Any message's callbacks reach the same chat; the newest is as good as any.
+  const { userLabel, replyTo, typing } = batch[batch.length - 1];
+  if (batch.length > 1) console.log(`[index] Coalesced ${batch.length} messages into one turn`);
 
   await acquireSlot();
   await typing().catch(() => {});
 
   // Keep a typing indicator alive while the agent works (it lasts ~5s per call).
   const typingTimer = setInterval(() => typing().catch(() => {}), 4500);
+  const progress = progressUpdatesEnabled() ? new ProgressReporter(statusTransport(chatId)) : null;
 
   // Route trivial logging messages to the fast model on new chats only, and only
   // when the fast tier is enabled (off by default for consistent behaviour).
   // Existing sessions stay on the standard model to avoid switching mid-conversation,
   // and a message carrying an attachment is never trivial, so it stays on standard.
+  // Read here, inside the queue, so it sees the session the previous run created.
   const existingSession = getSession(chatId);
   const modelTier =
     config.fastTierEnabled && !existingSession && attachments.length === 0
       ? classifyQuery(text)
       : "standard";
 
+  let reply: string;
   try {
     const response = await runAgent({
       userMessage: text,
@@ -172,16 +202,23 @@ async function handle(opts: {
       userLabel,
       modelTier,
       attachments,
-      onProgress: undefined,
+      onActivity: progress ? (event) => progress.onActivity(event) : undefined,
     });
-    clearInterval(typingTimer);
-    await replyTo(response.text || "(no response)");
+    reply = response.text || "(no response)";
   } catch (err: any) {
-    clearInterval(typingTimer);
     console.error("[index] Agent error:", err?.message, err?.stack);
-    await replyTo(classifyError(err?.message ?? "unknown error"));
+    reply = classifyError(err?.message ?? "unknown error");
+  }
+
+  clearInterval(typingTimer);
+  // Stop status edits before the reply goes out; the delete runs alongside it.
+  const cleared = progress?.finish();
+  try {
+    await replyTo(reply);
   } finally {
     releaseSlot();
+    // Held per chat until the status is gone, so it never outlives the turn.
+    await cleared;
   }
 }
 
@@ -287,10 +324,16 @@ bot.on("message", async (ctx) => {
     const cmd = text.slice(1).split(/\s+/)[0].split("@")[0].toLowerCase();
     const rest = text.slice(1 + cmd.length).trim();
 
-    // /new clears the conversation so the next message starts fresh.
+    // /new clears the conversation so the next message starts fresh. It waits its
+    // turn: clearing under a running turn would be undone when that run saves its
+    // session, and messages sent before it should still land in the old context.
     if (cmd === "new" || cmd === "reset") {
-      clearSession(chatId);
-      await replyTo("Started a fresh session. Previous context is cleared.");
+      void chatQueue
+        .run(chatId, async () => {
+          clearSession(chatId);
+          await replyTo("Started a fresh session. Previous context is cleared.");
+        })
+        .catch((err) => console.error("[index] reset failed:", err?.message));
       return;
     }
 
@@ -304,46 +347,66 @@ bot.on("message", async (ctx) => {
     if (mapped) text = rest ? `${mapped}\n\n${rest}` : mapped;
   }
 
-  const attachments = await collectAttachments(ctx.message);
+  // Take a place in the chat's queue now, before any download or transcription,
+  // so a slow voice note cannot be overtaken by a quick text sent after it. The
+  // handler does not wait for the run: in polling mode grammy handles updates one
+  // at a time, and blocking here would stall every other chat (and coalescing).
+  const notice = (out: string) => ctx.reply(out).then(() => undefined);
+  const prepared = prepareMessage(ctx.message, text, notice).then((ready): ChatMessage | null =>
+    ready
+      ? {
+          ...ready,
+          group: ctx.message.media_group_id,
+          userLabel,
+          replyTo,
+          typing: () => ctx.replyWithChatAction("typing").then(() => undefined),
+        }
+      : null,
+  );
+  void chatQueue
+    .enqueue(chatId, prepared, handle)
+    .catch((err) => console.error("[index] Turn failed:", err?.message, err?.stack));
+});
+
+/**
+ * Download attachments and transcribe a voice note. Resolves to null when there
+ * is nothing for the agent (the user has already been told why, where relevant).
+ */
+async function prepareMessage(
+  msg: any,
+  typed: string,
+  reply: (out: string) => Promise<void>,
+): Promise<{ text: string; attachments: Attachment[] } | null> {
+  let text = typed;
+  const attachments = await collectAttachments(msg);
 
   // Voice notes have no audio path to the model, so transcribe and treat the
   // transcript as the user's text. A caption (text) takes precedence if both.
   if (!text.trim()) {
-    const isVoice = Boolean(ctx.message?.voice || ctx.message?.audio || ctx.message?.video_note);
+    const isVoice = Boolean(msg?.voice || msg?.audio || msg?.video_note);
     if (isVoice && !transcriptionAvailable()) {
-      await ctx.reply(
-        "I can't transcribe voice notes in this setup. Type it out and I've got you.",
-      );
-      return;
+      await reply("I can't transcribe voice notes in this setup. Type it out and I've got you.");
+      return null;
     }
     try {
-      const transcript = await transcribeVoiceNote(ctx.message);
+      const transcript = await transcribeVoiceNote(msg);
       if (transcript === "") {
         if (isVoice) {
-          await ctx.reply("I couldn't make out that voice note. Try again, or type it out.");
+          await reply("I couldn't make out that voice note. Try again, or type it out.");
         }
       } else if (transcript != null) {
         text = transcript;
       }
     } catch (err) {
       console.error("[index] transcription failed:", (err as Error).message);
-      await ctx.reply("I had trouble transcribing that voice note. Type it out and I've got you.");
-      return;
+      await reply("I had trouble transcribing that voice note. Type it out and I've got you.");
+      return null;
     }
   }
 
-  if (!text.trim() && attachments.length === 0) return;
-
-  await handle({
-    chatId,
-    userId,
-    userLabel,
-    text,
-    attachments,
-    typing: () => ctx.replyWithChatAction("typing").then(() => undefined),
-    replyTo,
-  });
-});
+  if (!text.trim() && attachments.length === 0) return null;
+  return { text, attachments };
+}
 
 bot.catch((err) => {
   console.error("[index] Bot error:", err.message);

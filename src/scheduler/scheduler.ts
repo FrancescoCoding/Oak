@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { Cron } from "croner";
 import { type ModelTier, runAgent } from "../agent/runner.js";
+import { chatQueue } from "../channel/chat-queue.js";
 import { sendMessage } from "../channel/notify.js";
 import { config } from "../config.js";
 import { writeJsonAtomic } from "../util/atomicfile.js";
@@ -96,12 +97,16 @@ export function getTask(id: string): ScheduledTask | undefined {
 export async function executeTask(task: ScheduledTask): Promise<void> {
   console.log(`[scheduler] Running: ${task.name}`);
   try {
-    const response = await runAgent({
-      userMessage: task.prompt,
-      chatId: task.chatId,
-      userLabel: "scheduled task",
-      modelTier: task.modelTier ?? "standard",
-    });
+    // Same per-chat queue as Telegram messages: a reminder resumes the chat's
+    // session, so it must not run alongside a message for that chat.
+    const response = await chatQueue.run(task.chatId, () =>
+      runAgent({
+        userMessage: task.prompt,
+        chatId: task.chatId,
+        userLabel: "scheduled task",
+        modelTier: task.modelTier ?? "standard",
+      }),
+    );
     await sendMessage(task.chatId, response.text || "(no output)");
   } catch (err: any) {
     console.error(`[scheduler] Task ${task.name} failed:`, err.message);

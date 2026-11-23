@@ -26,7 +26,8 @@ const DATA_URL =
 const IMAGE_BASE =
   process.env.EXERCISE_DB_IMAGE_BASE ??
   "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/";
-const CACHE_FILE = path.resolve(process.cwd(), "data", "exercises.json");
+// Resolved from this file, not cwd, so every run shares one cache (see docs/deployment.md).
+const CACHE_FILE = path.resolve(import.meta.dirname, "..", "data", "exercises.json");
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 
 /** One record from the free-exercise-db dataset. */

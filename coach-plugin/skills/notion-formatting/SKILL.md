@@ -70,13 +70,11 @@ Note: Notion's public API cannot create or configure database *views* (grouping,
 
 If the workspace has a Dashboard page (built by setup-notion), keep its tiles current after you change the underlying data, so the user never has to ask.
 
-**Preferred for the three data tiles (This Week, Goals, Body Stats):** run one command.
+**The three data tiles (This Week, Goals, Body Stats)** come from `sync-dashboard`, which re-derives them directly from the databases (session counts, goal progress, latest body stats), so the numbers are always consistent with the data and never hand-typed. After you log a session, a goal, or body stats with the helper's `log` command, the host runs it for you right after your reply, so do not run it yourself. Run it once yourself only if you changed those rows some other way, or if the `[context]` line says "host Dashboard sync is off":
 
 ```bash
 node scripts/notion.ts sync-dashboard --now 2026-06-30   # --now is the date from the Telegram header
 ```
-
-`sync-dashboard` re-derives all three tiles directly from the databases (session counts, goal progress, latest body stats), so the numbers are always consistent with the data and never hand-typed. Run it after logging a session, changing a goal, or logging body stats.
 
 For one-off or prose tiles, `refresh-tile` replaces a single tile from your own markdown (never edit blocks in place; their ids shift). Tile ids are cached in `data/notion-ids.json` and self-heal from the live page, so refer to tiles by name: `thisWeek`, `goals`, `bodyStats`, `nextSession`, `activeProgram`, `nutrition`, `quickCommands`.
 

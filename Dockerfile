@@ -57,6 +57,13 @@ RUN chmod +x entrypoint.sh
 # harmlessly (agent treats PERSONAL.md as missing) when the volume has no copy.
 RUN ln -sf /data/PERSONAL.md /app/PERSONAL.md
 
+# One canonical data dir: /app/data (what the scripts and the app resolve, as
+# ./data does locally) points into the volume, so caches like notion-ids.json
+# survive restarts. It targets /data/data, not /data, because earlier deploys
+# already wrote their newest caches there. entrypoint.sh creates it on a fresh
+# volume, since a mount hides anything built into the image under /data.
+RUN ln -sfn /data/data /app/data
+
 # /data is the mountpoint for the persistent volume (sessions + schedule).
 RUN chown -R node:node /app/dist /app/node_modules /app/package.json /app/entrypoint.sh && \
     mkdir -p /home/node/.claude && chown -R node:node /home/node && \

@@ -48,11 +48,13 @@ const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const TIMEZONE = process.env.TIMEZONE ?? "Europe/London";
 const API = "https://www.googleapis.com/calendar/v3";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
-const TOKEN_FILE = path.resolve(
-  process.cwd(),
-  process.env.GOOGLE_TOKEN_FILE ?? path.join("data", "google-token.json"),
-);
-const CALENDAR_FILE = path.resolve(process.cwd(), "data", "google-calendar.json");
+// The data dir is resolved from this file, not cwd, so the agent hits the same
+// cache whatever directory it runs the script from (see docs/deployment.md).
+const DATA_DIR = path.resolve(import.meta.dirname, "..", "data");
+const TOKEN_FILE = process.env.GOOGLE_TOKEN_FILE
+  ? path.resolve(process.env.GOOGLE_TOKEN_FILE)
+  : path.join(DATA_DIR, "google-token.json");
+const CALENDAR_FILE = path.join(DATA_DIR, "google-calendar.json");
 
 const MAX_RETRIES = 5;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

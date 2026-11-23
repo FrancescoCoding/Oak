@@ -5,6 +5,11 @@ import { type SDKUserMessage, query } from "@anthropic-ai/claude-agent-sdk";
 import { googleCalendarConfigured } from "../calendar/status.js";
 import { config } from "../config.js";
 import { type Attachment, buildUserContent } from "../media/attachments.js";
+import {
+  createDashboardSyncer,
+  dashboardSyncEffect,
+  localIsoDate,
+} from "../notion/dashboard-sync.js";
 import { notionConfigured } from "../notion/status.js";
 import { personaSystemPrompt, pickPersonality } from "./personalities.js";
 import { type RunRecord, appendRunRecord, summariseModelUsage, summariseUsage } from "./runlog.js";
@@ -33,6 +38,35 @@ async function* singleMessage(
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // runner.ts lives at src/agent/, so the repo root is two levels up.
 const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
+
+// One syncer per process, so syncs from overlapping chats are coalesced.
+const dashboardSync = createDashboardSyncer({ cwd: PROJECT_ROOT });
+
+/** Activity events never break a run: thrown errors and rejected promises are both swallowed. */
+function emitActivity(
+  onActivity: ((event: { tool: string; command?: string }) => void) | undefined,
+  block: any,
+): void {
+  if (!onActivity) return;
+  try {
+    const input = block.input ?? {};
+    const raw =
+      block.name === "Bash"
+        ? input.command
+        : block.name === "Skill"
+          ? (input.skill ?? input.command)
+          : undefined;
+    const command = typeof raw === "string" ? raw.slice(0, 200) : undefined;
+    const ret: unknown = onActivity(
+      command === undefined ? { tool: block.name } : { tool: block.name, command },
+    );
+    if (ret && typeof (ret as Promise<unknown>).catch === "function") {
+      (ret as Promise<unknown>).catch(() => {});
+    }
+  } catch {
+    /* a progress callback must not affect the reply */
+  }
+}
 
 export type ModelTier = "fast" | "standard";
 
@@ -103,6 +137,13 @@ function buildSessionContext(): string {
   const parts: string[] = [];
   if (notionConfigured()) {
     parts.push("Notion configured");
+    // CLAUDE.md says the host syncs the data tiles; when that is turned off the
+    // agent has to do it, or nobody does.
+    if (!config.hostDashboardSync) {
+      parts.push(
+        "host Dashboard sync is off: after writing Workout Log, Goals or Body Stats rows, run `node scripts/notion.ts sync-dashboard --now <YYYY-MM-DD>` yourself once",
+      );
+    }
     const idsPath = path.join(PROJECT_ROOT, "data", "notion-ids.json");
     if (fs.existsSync(idsPath)) {
       parts.push("workspace built");
@@ -170,8 +211,9 @@ export async function runAgent(opts: {
   modelTier?: ModelTier;
   attachments?: Attachment[];
   onProgress?: (text: string) => void;
+  onActivity?: (event: { tool: string; command?: string }) => void;
 }): Promise<AgentResponse> {
-  const { userMessage, chatId, userLabel, attachments, onProgress } = opts;
+  const { userMessage, chatId, userLabel, attachments, onProgress, onActivity } = opts;
   const modelTier = opts.modelTier ?? "standard";
   const existingSession = getSession(chatId);
 
@@ -201,6 +243,26 @@ export async function runAgent(opts: {
     const startedAt = Date.now();
     const toolCounts: Record<string, number> = {};
     let resultMessage: any;
+    // True when the run wrote Dashboard-feeding rows and has not synced since.
+    let dashboardDirty = false;
+
+    /**
+     * Start the host Dashboard sync if this attempt wrote rows and did not sync
+     * afterwards. Also called when the run fails: the rows are already in Notion
+     * and the agent is told not to sync after a write. Not awaited, so the reply
+     * goes out while the helper re-derives the tiles.
+     */
+    const syncDashboardIfDirty = () => {
+      if (!dashboardDirty) return;
+      dashboardDirty = false;
+      try {
+        if (config.hostDashboardSync && notionConfigured()) {
+          dashboardSync.request(localIsoDate(config.timezone));
+        }
+      } catch (syncErr) {
+        console.warn("[dashboard] could not start sync:", (syncErr as Error).message);
+      }
+    };
 
     /** Fire-and-forget run record. Never awaited, never allowed to throw. */
     const logRun = (isError: boolean, errorMessage?: string) => {
@@ -289,6 +351,17 @@ export async function runAgent(opts: {
           }
         }
 
+        if (message.type === "assistant" && (message as any).parent_tool_use_id == null) {
+          for (const block of (message as any).message?.content ?? []) {
+            if (block?.type !== "tool_use" || typeof block.name !== "string") continue;
+            emitActivity(onActivity, block);
+            if (block.name === "Bash" && typeof block.input?.command === "string") {
+              const effect = dashboardSyncEffect(block.input.command);
+              if (effect) dashboardDirty = effect === "dirty";
+            }
+          }
+        }
+
         if (
           onProgress &&
           message.type === "assistant" &&
@@ -317,11 +390,13 @@ export async function runAgent(opts: {
       }
 
       logRun(Boolean(resultMessage?.is_error));
+      syncDashboardIfDirty();
       return { text: resultText, sessionId };
     } catch (err: any) {
       const msg = err?.message ?? String(err);
       console.error("[agent] query() threw:", msg);
       logRun(true, msg);
+      syncDashboardIfDirty();
 
       // Subscription usage limit hit. Return a clear message rather than throwing.
       // No restart needed: the next query() spawns a fresh subprocess, so once the

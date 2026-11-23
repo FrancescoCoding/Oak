@@ -1,13 +1,21 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import {
+  CACHE_FILE,
   buildPropertyValue,
+  fetchBlockTree,
   markdownToBlocks,
   optionNames,
+  parseArgs,
   parseInline,
+  renderBlocks,
   renderBodyStatsTile,
   renderGoalsTile,
   renderThisWeekTile,
+  rowIcon,
   startOfWeekUTC,
   validateValue,
 } from "./notion.ts";
@@ -232,4 +240,151 @@ test("renderBodyStatsTile: shows latest weight and waist, or empty state", () =>
     /2026-06-20: 80kg, waist 82cm/,
   );
   assert.match(renderBodyStatsTile(null), /No check-ins logged yet/);
+});
+
+// ─── data dir and arg parsing ──────────────────────────────────────────────────
+
+test("CACHE_FILE: resolved from the script location, not the cwd", () => {
+  // npm test runs from the repo root, where a cwd-based path would match too, so
+  // run the CLI from elsewhere. In the container the agent sometimes cd's away
+  // from /app and must still hit the same cache file.
+  const expected = path.resolve(import.meta.dirname, "..", "data", "notion-ids.json");
+  assert.equal(CACHE_FILE, expected);
+  const { NOTION_TOKEN: _token, ...env } = process.env;
+  const out = execFileSync(
+    process.execPath,
+    [path.join(import.meta.dirname, "notion.ts"), "--help"],
+    {
+      cwd: os.tmpdir(),
+      env,
+      encoding: "utf8",
+    },
+  );
+  assert.ok(out.includes(`Id cache: ${expected}`), out);
+});
+
+test("parseArgs: bare words collect as positionals", () => {
+  const args = parseArgs(["id-one", "id-two", "--depth", "2"]);
+  assert.deepEqual(args._, ["id-one", "id-two"]);
+  assert.equal(args.depth, "2");
+});
+
+test("parseArgs: boolean flags never swallow the next word", () => {
+  const args = parseArgs(["--json", "id-one", "--with-blocks", "--db", "Workout Log"]);
+  assert.equal(args.json, true);
+  assert.equal(args["with-blocks"], true);
+  assert.deepEqual(args._, ["id-one"]);
+  assert.equal(args.db, "Workout Log");
+});
+
+// ─── page bodies ───────────────────────────────────────────────────────────────
+
+const txt = (s: string) => [{ plain_text: s }];
+const blk = (
+  id: string,
+  type: string,
+  payload: Record<string, unknown> = {},
+  hasChildren = false,
+) => ({
+  id,
+  type,
+  has_children: hasChildren,
+  [type]: payload,
+});
+
+test("fetchBlockTree: recurses into children but not into child pages", async () => {
+  const tree: Record<string, any[]> = {
+    page: [
+      blk("t", "table", { table_width: 2, has_column_header: true }, true),
+      blk("sub", "child_page", { title: "Old program" }, true),
+    ],
+    t: [
+      blk("r1", "table_row", { cells: [txt("Exercise"), txt("Sets")] }),
+      blk("r2", "table_row", { cells: [txt("Bench"), txt("5x5 @60kg")] }),
+    ],
+  };
+  const asked: string[] = [];
+  const blocks = await fetchBlockTree("page", 4, async (id) => {
+    asked.push(id);
+    return structuredClone(tree[id] ?? []);
+  });
+  assert.deepEqual(asked, ["page", "t"]);
+  assert.equal(blocks[0].children?.length, 2);
+  assert.equal(blocks[1].children, undefined);
+});
+
+test("fetchBlockTree: marks children beyond the depth cap as truncated", async () => {
+  const blocks = await fetchBlockTree("page", 1, async () => [
+    blk("tog", "toggle", { rich_text: txt("Warm-up") }, true),
+  ]);
+  assert.equal(blocks[0].truncated, true);
+  assert.equal(blocks[0].children, undefined);
+  assert.match(renderBlocks(blocks).join("\n"), /nested content not fetched/);
+});
+
+test("renderBlocks: a typical session body reads as compact text", () => {
+  const lines = renderBlocks([
+    blk("h", "heading_2", { rich_text: txt("Push A") }),
+    blk("c", "callout", { rich_text: txt("Felt strong"), icon: { emoji: "💪" } }),
+    {
+      ...blk("t", "table", { table_width: 2, has_column_header: true }, true),
+      children: [
+        blk("r1", "table_row", { cells: [txt("Exercise"), txt("Sets")] }),
+        blk("r2", "table_row", { cells: [txt("Bench"), txt("5x5 @60kg")] }),
+      ],
+    },
+    {
+      ...blk("b", "bulleted_list_item", { rich_text: txt("Accessories") }, true),
+      children: [blk("b2", "bulleted_list_item", { rich_text: txt("Dips 3x10") })],
+    },
+    blk("n1", "numbered_list_item", { rich_text: txt("first") }),
+    blk("n2", "numbered_list_item", { rich_text: txt("second") }),
+    blk("td", "to_do", { rich_text: txt("Stretch"), checked: true }),
+    blk("e", "paragraph", { rich_text: [] }),
+    blk("d", "divider"),
+    blk("sub", "child_page", { title: "Notes" }, true),
+    blk("x", "some_new_type"),
+  ]);
+  assert.deepEqual(lines, [
+    "## Push A",
+    "> 💪 Felt strong",
+    "| Exercise | Sets |",
+    "| --- | --- |",
+    "| Bench | 5x5 @60kg |",
+    "- Accessories",
+    "  - Dips 3x10",
+    "1. first",
+    "2. second",
+    "- [x] Stretch",
+    "---",
+    "[page] Notes (sub)",
+    "[some_new_type]",
+  ]);
+});
+
+test("renderBlocks: column layouts flatten without extra indentation", () => {
+  const lines = renderBlocks([
+    {
+      ...blk("cl", "column_list", {}, true),
+      children: [
+        {
+          ...blk("c1", "column", {}, true),
+          children: [blk("p1", "paragraph", { rich_text: txt("left") })],
+        },
+        {
+          ...blk("c2", "column", {}, true),
+          children: [blk("p2", "paragraph", { rich_text: txt("right") })],
+        },
+      ],
+    },
+  ]);
+  assert.deepEqual(lines, ["left", "right"]);
+});
+
+test("rowIcon: Workout Log rows get the notepad icon unless --icon overrides it", () => {
+  assert.equal(rowIcon("Workout Log"), "🗒️");
+  assert.equal(rowIcon(" workout log "), "🗒️");
+  assert.equal(rowIcon("Workout Log", "🏋️"), "🏋️");
+  assert.equal(rowIcon("Goals"), undefined);
+  assert.equal(rowIcon(undefined), undefined);
 });

@@ -65,6 +65,14 @@ export const config = {
     | "xhigh"
     | "max",
 
+  // After a run that logged rows through the Notion helper, the host re-derives
+  // the Dashboard data tiles in the background instead of the agent doing it in
+  // its turn. HOST_DASHBOARD_SYNC=false hands that job back to the agent. Same
+  // falsy words as PROGRESS_UPDATES so the two switches behave alike.
+  hostDashboardSync: !["0", "false", "off", "no"].includes(
+    (process.env.HOST_DASHBOARD_SYNC ?? "").trim().toLowerCase(),
+  ),
+
   // Voice-note transcription: "local", "api", or "off". See docs/configuration.md.
   transcribeProvider: (process.env.TRANSCRIBE_PROVIDER ?? "local") as "local" | "api" | "off",
   transcribeApiUrl:
