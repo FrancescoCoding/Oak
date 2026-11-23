@@ -15,6 +15,7 @@ import {
   renderBodyStatsTile,
   renderGoalsTile,
   renderThisWeekTile,
+  rowIcon,
   startOfWeekUTC,
   validateValue,
 } from "./notion.ts";
@@ -378,4 +379,12 @@ test("renderBlocks: column layouts flatten without extra indentation", () => {
     },
   ]);
   assert.deepEqual(lines, ["left", "right"]);
+});
+
+test("rowIcon: Workout Log rows get the notepad icon unless --icon overrides it", () => {
+  assert.equal(rowIcon("Workout Log"), "🗒️");
+  assert.equal(rowIcon(" workout log "), "🗒️");
+  assert.equal(rowIcon("Workout Log", "🏋️"), "🏋️");
+  assert.equal(rowIcon("Goals"), undefined);
+  assert.equal(rowIcon(undefined), undefined);
 });

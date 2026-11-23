@@ -1116,8 +1116,21 @@ async function cmdLog(args: Args) {
     console.log(JSON.stringify(properties, null, 2));
     return;
   }
-  const page = await notion("/pages", "POST", { parent: { database_id: dbId }, properties });
+  const body: Record<string, unknown> = { parent: { database_id: dbId }, properties };
+  const icon = rowIcon(args.db, args.icon);
+  if (icon) body.icon = { type: "emoji", emoji: icon };
+  const page = await notion("/pages", "POST", body);
   console.log(`Logged row ${page.id}`);
+}
+
+/** Page icon new rows get per database, so nobody has to set it by hand in Notion. */
+const DEFAULT_ROW_ICONS: Record<string, string> = { "workout log": "🗒️" };
+
+/** Icon for a new row: an explicit --icon wins, otherwise the database's default (if any). */
+export function rowIcon(db: string | undefined, explicit?: string): string | undefined {
+  const chosen = explicit?.trim();
+  if (chosen) return chosen;
+  return DEFAULT_ROW_ICONS[(db ?? "").trim().toLowerCase()];
 }
 
 async function cmdAppend(args: Args) {
@@ -1333,7 +1346,8 @@ const USAGE = `Usage: node scripts/notion.ts <command> [flags]
                                          --with-blocks also prints each row's page body
   get-page-blocks <pageId> [<pageId> ...] [--json] [--depth 4]
                                          print page bodies (sets, loads, notes) as text
-  log --db "Workout Log" --set "Prop=value" ... [--dry-run]
+  log --db "Workout Log" --set "Prop=value" ... [--icon 🗒️] [--dry-run]
+      (Workout Log rows get the 🗒️ page icon by default)
   append --page <id> (--md "..." | --file x.md)
   create-page --parent <id> --title "..." [--icon 🏋️] [--md "..." | --file x.md]
   refresh-tile (--tile <name> | --column <id>) (--md "..." | --file x.md)
