@@ -66,6 +66,35 @@ case under `CLAUDE_CODE_OAUTH_TOKEN`. When some runs do report a cost, the summa
 sums those and says how many runs had none, rather than implying the total is
 complete.
 
+## Host Dashboard sync
+
+The three Dashboard data tiles (This Week, Goals, Body Stats) are re-derived by
+`scripts/notion.ts sync-dashboard`, which is deterministic. Rather than having the
+model run it inside its turn, the runner watches the stream for top-level Bash calls
+to the helper's `log` command (not `--dry-run` or `--help`). When the run ends
+(including with an error, since the rows are already written) and the agent did not
+already sync after its last write, it
+starts `node scripts/notion.ts sync-dashboard --now <today in TIMEZONE>` from the
+project root as a child process and returns the reply without waiting for it
+(`src/notion/dashboard-sync.ts`).
+
+- At most one sync runs at a time. Requests that arrive meanwhile collapse into one
+  follow-up run.
+- A sync is killed after 60 seconds. Failures are logged and never reach the chat.
+- Its output, and a final `sync done`, `sync exited with <code>` or `sync timed out`
+  line with the duration, go to stdout with a `[dashboard]` prefix.
+- The coalescing only covers host syncs. If the agent rewrites the same tile (for
+  example its own `sync-dashboard` after editing a row without `log`) while a host
+  sync is still running, both append before deleting the old blocks, so the tile can
+  briefly show its content twice. The next sync of that tile clears it.
+
+On Cloud Run this relies on CPU always being allocated: the instance keeps running
+after the webhook is acknowledged, so a child that finishes a few seconds after the
+reply completes normally. On a host that throttles CPU between requests, or to
+debug, set `HOST_DASHBOARD_SYNC=false` (or `0`, `off`, `no`). The session context
+then tells the agent the host sync is off, and CLAUDE.md and the skills tell it to
+run the sync itself in its turn, as before.
+
 ## Samples
 
 A line from `data/agent-runs.jsonl` (wrapped here for reading; it is one line):

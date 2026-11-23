@@ -8,7 +8,10 @@ by `scripts/setup-workspace.ts` and maintained through `scripts/notion.ts`.
 Instance-specific ids (Hub, each database, the Dashboard page, and its column
 ids) are **not hardcoded** anywhere in the repo. They are discovered at build
 time and cached in `data/notion-ids.json` (gitignored). Resolve ids from that
-cache or by name lookup, never from a literal in code.
+cache or by name lookup, never from a literal in code. The scripts resolve
+`data/` from their own location, not the working directory, so the cache is the
+same file wherever they are run from (in the container it lives on the volume,
+see [deployment.md](./deployment.md#where-the-data-directory-lives)).
 
 ## Build order (strict)
 
@@ -45,6 +48,17 @@ databases/pages are detected by title and reused, never duplicated). Add
   `node scripts/notion.ts log --db "Workout Log" --set "Name=value" ...`.
 - **Child pages:** `POST /v1/pages` with `parent:{ page_id }`. Use
   `node scripts/notion.ts create-page --parent <pageId> --title "..." --file x.md`.
+- **Reading rows:** `node scripts/notion.ts query-recent --db "Workout Log" --limit 3`
+  prints the newest rows, each ending in `id: <pageId>`. The properties are only
+  a summary; the sets, loads and notes live in the page body.
+- **Reading page bodies:** `node scripts/notion.ts get-page-blocks <pageId> [<pageId> ...]`
+  prints each page's blocks as compact text (headings, bullets, to-dos, table
+  rows, callouts), several pages per call. It recurses into children (tables,
+  columns, toggles) up to `--depth` levels (default 4) and prints a marker where
+  it stops, but never into child pages or databases. `--json` gives the raw
+  block tree. To get recent rows and their bodies in one call, add
+  `--with-blocks` to `query-recent`.
+- **Help:** `node scripts/notion.ts --help` lists every command and the id cache path.
 
 ## Database schemas
 

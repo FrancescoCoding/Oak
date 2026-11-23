@@ -40,8 +40,9 @@ read it if you need to extend the workspace.
 ## 3. Seed goals and confirm
 
 If `PERSONAL.md` lists real goals, offer to add them to the Goals database (ask
-before writing), and refresh the Dashboard Goals tile afterwards (see the
-notion-formatting skill). Then confirm what now exists and tell the user they can
+before writing). Goals added with the helper's `log` command reach the Dashboard
+Goals tile on their own: the host syncs it right after your reply, unless the
+`[context]` line says host Dashboard sync is off (see the notion-formatting skill). Then confirm what now exists and tell the user they can
 log workouts in plain language and ask for plans, recommendations, and progress.
 
 ## Note on views
